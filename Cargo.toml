@@ -1,0 +1,16 @@
+[package]
+description = "livi is a library for hosting LV2 plugins."
+edition = "2018"
+name = "livi"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lilv = "0.0.4"
+log = "0.4"
+lv2_raw = "0.2"
+
+[dev-dependencies]
+env_logger = "0.9"
+jack = "0.7"
