@@ -22,40 +22,64 @@ extern "C" fn do_map(handle: lv2_raw::LV2UridMapHandle, uri_ptr: *const i8) -> l
     }
 }
 
+extern "C" fn do_unmap(handle: lv2_sys::LV2_URID_Map_Handle, urid: lv2_raw::LV2Urid) -> *const i8 {
+    let handle: *const Mutex<HashMap<CString, lv2_raw::LV2Urid>> = handle as *const _;
+    let map_mutex = unsafe { &*handle };
+    let map = map_mutex.lock().unwrap();
+    for (uri, id) in map.iter() {
+        if *id == urid {
+            return uri.as_ptr();
+        }
+    }
+    std::ptr::null()
+}
+
 pub struct UridMap {
     _map: Box<Mutex<HashMap<CString, u32>>>,
-    _data: Box<lv2_raw::LV2UridMap>,
-    feature: LV2Feature,
+    _map_data: Box<lv2_raw::LV2UridMap>,
+    _unmap_data: Box<lv2_sys::LV2_URID_Unmap>,
+    urid_map_feature: LV2Feature,
+    urid_unmap_feature: LV2Feature,
 }
 
 impl UridMap {
     pub fn new() -> UridMap {
         let map = Box::new(Mutex::new(HashMap::new()));
         let map_ptr = map.as_ref() as *const _ as *mut _;
-        let data = Box::new(lv2_raw::LV2UridMap {
+        let map_data = Box::new(lv2_raw::LV2UridMap {
             handle: map_ptr,
             map: do_map,
         });
-        let data_ptr = data.as_ref() as *const _ as *mut _;
+        let map_data_ptr = map_data.as_ref() as *const _ as *mut _;
+        let unmap_data = Box::new(lv2_sys::LV2_URID_Unmap {
+            handle: map_ptr,
+            unmap: Some(do_unmap),
+        });
+        let unmap_data_ptr = unmap_data.as_ref() as *const _ as *mut _;
         UridMap {
             _map: map,
-            _data: data,
-            feature: LV2Feature {
+            _map_data: map_data,
+            _unmap_data: unmap_data,
+            urid_map_feature: LV2Feature {
                 uri: URID_MAP.as_ptr().cast(),
-                data: data_ptr,
+                data: map_data_ptr,
+            },
+            urid_unmap_feature: LV2Feature {
+                uri: b"http://lv2plug.in/ns/ext/urid#unmap\0".as_ptr().cast(),
+                data: unmap_data_ptr,
             },
         }
     }
 
     pub fn map(&self, uri: &CStr) -> u32 {
-        do_map(self._data.handle, uri.as_ptr())
+        do_map(self._map_data.handle, uri.as_ptr())
     }
 
-    pub fn as_feature(&self) -> &LV2Feature {
-        &self.feature
+    pub fn as_urid_map_feature(&self) -> &LV2Feature {
+        &self.urid_map_feature
     }
 
-    pub fn as_feature_mut(&mut self) -> &mut LV2Feature {
-        &mut self.feature
+    pub fn as_urid_unmap_feature(&self) -> &LV2Feature {
+        &self.urid_unmap_feature
     }
 }

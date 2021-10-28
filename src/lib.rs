@@ -53,11 +53,8 @@ impl Features {
     }
 
     fn iter_features(&self) -> impl Iterator<Item = &'_ LV2Feature> {
-        std::iter::once(self.urid_map.as_feature())
-    }
-
-    fn iter_features_mut(&mut self) -> impl Iterator<Item = &'_ mut LV2Feature> {
-        std::iter::once(self.urid_map.as_feature_mut())
+        std::iter::once(self.urid_map.as_urid_map_feature())
+            .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
     }
 }
 
@@ -209,7 +206,7 @@ impl Plugin {
             .inner
             .instantiate(
                 sample_rate,
-                self.resources.features.lock().unwrap().iter_features_mut(),
+                self.resources.features.lock().unwrap().iter_features(),
             )
             .ok_or(InstantiateError::UnknownError)?;
         let mut control_inputs = Vec::new();
