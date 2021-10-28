@@ -336,32 +336,32 @@ pub struct Port {
 }
 
 /// All the inputs and outputs for an instance.
-pub struct PortValues<'a, ControlInput, AudioInput, AudioOutput> {
+pub struct PortValues<'a, ControlInput, AudioInput, AudioOutput>
+where
+    ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
+    AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+{
     /// The number of audio samples that will be processed.
     pub frames: usize,
 
     /// The control inputs.
-    ///
-    /// Usually a sequence of `&f32`.
     pub control_input: ControlInput,
 
     /// The audio inputs.
-    /// Usually a sequence of `&[f32]`.
     pub audio_input: AudioInput,
 
     /// The audio outputs.
-    /// Usually a sequence of `&mut [f32]`.
     pub audio_output: AudioOutput,
 
     /// The events input.
-    ///
-    /// This is usually used to store events, such as midi events.
     pub atom_sequence: Option<&'a LV2AtomSequence>,
 }
 
 /// The index of the port within a plugin.
 pub struct PortIndex(usize);
 
+/// An instance of a plugin that can process inputs and outputs.
 pub struct Instance {
     inner: lilv::instance::ActiveInstance,
     control_inputs: Vec<PortIndex>,
@@ -375,7 +375,7 @@ impl Instance {
     /// Running plugin code is unsafe.
     pub unsafe fn run<'a, ControlInput, AudioInput, AudioOutput>(
         &mut self,
-        ports: PortValues<ControlInput, AudioInput, AudioOutput>,
+        ports: PortValues<'a, ControlInput, AudioInput, AudioOutput>,
     ) -> Result<(), RunError>
     where
         ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
