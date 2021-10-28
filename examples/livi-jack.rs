@@ -1,19 +1,35 @@
 use log::{error, info};
+use structopt::StructOpt;
+
+/// The configuration for the backend.
+#[derive(StructOpt, Debug)]
+struct Configuration {
+    /// The uri of the plugin to instantiate.
+    /// To see the set of available plugins, use `lv2ls`.
+    #[structopt(
+        long = "plugin-uri",
+        default_value = "http://drobilla.net/plugins/mda/EPiano"
+    )]
+    plugin_uri: String,
+
+    /// The amount of debug logging to provide. Valid values are "off", "error", "warn", "info",
+    /// "debug", and "trace".
+    #[structopt(long = "log-level", default_value = "info")]
+    log_level: log::LevelFilter,
+}
 
 fn main() {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .init();
+    let config = Configuration::from_args();
+    env_logger::builder().filter_level(config.log_level).init();
     let (client, status) =
         jack::Client::new("livi-jack", jack::ClientOptions::NO_START_SERVER).unwrap();
     info!("Created jack client {:?} with status {:?}.", client, status);
 
     let livi = livi::World::new();
-    let midi_urid =
-        livi.urid(&std::ffi::CString::new("http://lv2plug.in/ns/ext/midi#MidiEvent").unwrap());
+    let midi_urid = livi.midi_urid();
     let plugin = livi
         .iter_plugins()
-        .find(|p| p.uri() == "http://drobilla.net/plugins/mda/EPiano")
+        .find(|p| p.uri() == config.plugin_uri)
         .unwrap();
     let mut plugin_instance = unsafe { plugin.instantiate(client.sample_rate() as f64).unwrap() };
 
