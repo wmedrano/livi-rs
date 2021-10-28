@@ -40,20 +40,20 @@ impl Lv2AtomEvent {
 }
 
 /// An atom sequence.
-pub struct Lv2AtomSequence {
+pub struct LV2AtomSequence {
     buffer: Vec<lv2_raw::LV2AtomSequence>,
 }
 
-impl Lv2AtomSequence {
+impl LV2AtomSequence {
     /// Create a new sequence that can hold about desired_capacity bytes.
-    pub fn new(desired_capacity: usize) -> Lv2AtomSequence {
+    pub fn new(desired_capacity: usize) -> LV2AtomSequence {
         let len = desired_capacity / std::mem::size_of::<lv2_raw::LV2AtomSequence>();
         let mut buffer = Vec::with_capacity(len);
         buffer.resize_with(len, || lv2_raw::LV2AtomSequence {
             atom: lv2_raw::LV2Atom { size: 0, mytype: 0 },
             body: lv2_raw::LV2AtomSequenceBody { unit: 0, pad: 0 },
         });
-        let mut seq = Lv2AtomSequence { buffer };
+        let mut seq = LV2AtomSequence { buffer };
         seq.clear();
         seq
     }
@@ -106,7 +106,7 @@ impl Lv2AtomSequence {
     }
 }
 
-impl std::fmt::Debug for Lv2AtomSequence {
+impl std::fmt::Debug for LV2AtomSequence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let capacity = self.capacity();
         f.debug_struct("Lv2AtomSequence")

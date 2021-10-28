@@ -1,15 +1,13 @@
+use crate::event::LV2AtomSequence;
+use log::{error, info, warn};
+use lv2_raw::LV2Feature;
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
 
-use log::{error, info, warn};
-use lv2_raw::{LV2AtomSequence, LV2Feature};
-
-use crate::midi::Lv2AtomSequence;
-
+pub mod event;
 mod features;
-pub mod midi;
 
 struct Resources {
     input_port_uri: lilv::node::Node,
@@ -63,12 +61,14 @@ impl Features {
     }
 }
 
+/// Contains all plugins.
 pub struct World {
     plugins: Vec<lilv::plugin::Plugin>,
     resources: Arc<Resources>,
 }
 
 impl World {
+    /// Create a new world.
     pub fn new() -> World {
         let world = lilv::World::with_load_all();
         let resources = Arc::new(Resources::new(&world));
@@ -142,17 +142,23 @@ impl World {
         World { plugins, resources }
     }
 
+    /// Get the URID of a URI. This value is only guaranteed to be valid for
+    /// instances spawned from this world. It is not guaranteed to be stable
+    /// across different runs.
     pub fn urid(&self, uri: &std::ffi::CStr) -> lv2_raw::LV2Urid {
         self.resources.features.lock().unwrap().urid_map.map(uri)
     }
 
+    /// The URID for midi events.
     pub fn midi_urid(&self) -> lv2_raw::LV2Urid {
         self.urid(
             std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/midi#MidiEvent\0")
                 .unwrap(),
         )
     }
-    pub fn iter_plugins(&self) -> impl '_ + Iterator<Item = Plugin> {
+
+    /// Iterate through all plugins.
+    pub fn iter_plugins(&self) -> impl '_ + ExactSizeIterator + Iterator<Item = Plugin> {
         self.plugins.iter().map(move |p| Plugin {
             inner: p.clone(),
             resources: self.resources.clone(),
@@ -166,17 +172,17 @@ impl Default for World {
     }
 }
 
+/// An error with plugin instantiation.
 #[derive(Debug)]
 pub enum InstantiateError {
+    /// An error ocurred, but it is not known why.
     UnknownError,
+    /// The plugin was found to have too many atom ports. Only up to 1 atom port
+    /// is supported.
     TooManyEventsInputs,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct PluginOptions {
-    event_buffer_size: Option<usize>,
-}
-
+/// A plugin that can be used to instantiate plugin instances.
 #[derive(Clone)]
 pub struct Plugin {
     inner: lilv::plugin::Plugin,
@@ -194,6 +200,8 @@ impl Plugin {
         self.inner.name().as_str().unwrap_or("BAD_NAME").to_string()
     }
 
+    /// Create a new instance of the plugin.
+    ///
     /// # Safety
     /// Running plugin code is unsafe.
     pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
@@ -231,28 +239,7 @@ impl Plugin {
         })
     }
 
-    /// # Safety
-    /// Running plugin code is unsafe.
-    pub unsafe fn instantiate_with_ports(
-        &self,
-        sample_rate: f64,
-        buffer_size: usize,
-        events_size: usize,
-    ) -> Result<InstanceWithPorts, InstantiateError> {
-        let instance = self.instantiate(sample_rate)?;
-        let control_inputs = vec![0.0; instance.control_inputs.len()];
-        let audio_inputs = vec![vec![0.0; buffer_size]; instance.audio_inputs.len()];
-        let audio_outputs = vec![vec![0.0; buffer_size]; instance.audio_inputs.len()];
-        Ok(InstanceWithPorts {
-            instance,
-            buffer_size,
-            control_inputs,
-            audio_inputs,
-            audio_outputs,
-            atom_sequence: Lv2AtomSequence::new(events_size),
-        })
-    }
-
+    /// Iterate over all ports for the plugin.
     pub fn ports(&self) -> impl '_ + Iterator<Item = Port> {
         self.inner.iter_ports().map(move |p| {
             let io_type = if p.is_a(&self.resources.input_port_uri) {
@@ -267,7 +254,7 @@ impl Plugin {
             } else if p.is_a(&self.resources.control_port_uri) {
                 DataType::Control
             } else if p.is_a(&self.resources.atom_port_uri) {
-                DataType::Atom
+                DataType::AtomSequence
             } else {
                 unreachable!("Port is not an audio or control port.")
             };
@@ -276,7 +263,7 @@ impl Plugin {
                 (IOType::Input, DataType::Audio) => PortType::AudioInput,
                 (IOType::Output, DataType::Control) => PortType::ControlOutput,
                 (IOType::Output, DataType::Audio) => PortType::AudioOutput,
-                (IOType::Input, DataType::Atom) => PortType::EventsInput,
+                (IOType::Input, DataType::AtomSequence) => PortType::EventsInput,
                 (iotype, data_type) => panic!(
                     "Port {:?} has unsupported configuration. It is an {:?} {:?} port.",
                     p, iotype, data_type
@@ -300,6 +287,7 @@ impl Plugin {
     }
 }
 
+/// The type of IO for the port. Either input or output.
 #[derive(Copy, Clone, Debug)]
 enum IOType {
     // The data is an input to the plugin. Usually this corresponds to an `&`
@@ -310,16 +298,18 @@ enum IOType {
     Output,
 }
 
+/// The data type pointed to by the port.
 #[derive(Copy, Clone, Debug)]
 enum DataType {
     /// A single f32.
     Control,
     /// An `[f32]`.
     Audio,
-    /// LV2 atom.
-    Atom,
+    /// An LV2 atom sequence.
+    AtomSequence,
 }
 
+/// The type of port.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PortType {
     /// A single `&f32`.
@@ -330,30 +320,46 @@ pub enum PortType {
     AudioInput,
     /// And `&mut [f32]`.
     AudioOutput,
-    /// LV2 events input. This is used to handle midi, among other things.
+    /// LV2 atom sequence input. This is used to handle midi, among other things.
     EventsInput,
 }
 
+/// A port represents a connection (either input or output) to a plugin.
 pub struct Port {
+    /// The type of port.
     pub port_type: PortType,
+    /// The name of the port.
     pub name: String,
+    /// The default value for the port if it is a `ControlInput`.
     pub default_value: f32,
     index: PortIndex,
 }
 
-pub struct MidiEvent<'a> {
-    pub frame: usize,
-    pub data: &'a [u8],
-}
-
-pub struct Ports<'a, ControlInput, AudioInput, AudioOutput> {
+/// All the inputs and outputs for an instance.
+pub struct PortValues<'a, ControlInput, AudioInput, AudioOutput> {
+    /// The number of audio samples that will be processed.
     pub frames: usize,
+
+    /// The control inputs.
+    ///
+    /// Usually a sequence of `&f32`.
     pub control_input: ControlInput,
+
+    /// The audio inputs.
+    /// Usually a sequence of `&[f32]`.
     pub audio_input: AudioInput,
+
+    /// The audio outputs.
+    /// Usually a sequence of `&mut [f32]`.
     pub audio_output: AudioOutput,
-    pub atom_sequence: Option<&'a Lv2AtomSequence>,
+
+    /// The events input.
+    ///
+    /// This is usually used to store events, such as midi events.
+    pub atom_sequence: Option<&'a LV2AtomSequence>,
 }
 
+/// The index of the port within a plugin.
 pub struct PortIndex(usize);
 
 pub struct Instance {
@@ -369,7 +375,7 @@ impl Instance {
     /// Running plugin code is unsafe.
     pub unsafe fn run<'a, ControlInput, AudioInput, AudioOutput>(
         &mut self,
-        ports: Ports<ControlInput, AudioInput, AudioOutput>,
+        ports: PortValues<ControlInput, AudioInput, AudioOutput>,
     ) -> Result<(), RunError>
     where
         ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
@@ -401,7 +407,7 @@ impl Instance {
                 .connect_port_ptr(index.0, data.as_mut_ptr());
         }
         if ports.atom_sequence.iter().count() != self.events_input.iter().count() {
-            return Err(RunError::EventsInputSizeMismatch);
+            return Err(RunError::AtomSequenceSizeMismatch);
         }
         if let (Some(index), Some(sequence)) = (self.events_input.as_ref(), ports.atom_sequence) {
             self.inner
@@ -413,42 +419,22 @@ impl Instance {
     }
 }
 
+/// An error associated with running a plugin.
 #[derive(Debug)]
 pub enum RunError {
+    /// The number of control inputs was different than what the plugin
+    /// required.
     ControlInputSizeMismatch,
+
+    /// The number of audio inputs was different than what the plugin required.
     AudioInputSizeMismatch,
+
+    /// The number of audio outputs was different than what the plugin required.
     AudioOutputSizeMismatch,
-    EventsInputSizeMismatch,
-}
 
-pub struct InstanceWithPorts {
-    instance: Instance,
-    buffer_size: usize,
-    pub control_inputs: Vec<f32>,
-    pub audio_inputs: Vec<Vec<f32>>,
-    pub audio_outputs: Vec<Vec<f32>>,
-    pub atom_sequence: midi::Lv2AtomSequence,
-}
-
-impl InstanceWithPorts {
-    /// # Safety
-    /// Running plugin code is unsafe.
-    pub unsafe fn run<AudioInput, AudioOutput>(&mut self) -> Result<&'_ Vec<Vec<f32>>, RunError> {
-        let atom_sequence = if self.instance.events_input.is_some() {
-            Some(&self.atom_sequence)
-        } else {
-            None
-        };
-        let ports = Ports {
-            frames: self.buffer_size,
-            control_input: self.control_inputs.iter(),
-            audio_input: self.audio_inputs.iter().map(|v| v.as_slice()),
-            audio_output: self.audio_outputs.iter_mut().map(|v| v.as_mut_slice()),
-            atom_sequence,
-        };
-        self.instance.run(ports)?;
-        Ok(&self.audio_outputs)
-    }
+    /// The number of atom sequence inputs was different than what the plugin
+    /// required.
+    AtomSequenceSizeMismatch,
 }
 
 #[cfg(test)]
