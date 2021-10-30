@@ -1,3 +1,6 @@
+/// livi-jack hosts an LV2 plugin on JACK!
+///
+/// Run with: `cargo run --release -- --plugin-uri=${PLUGIN_URI}`
 use livi::event::LV2AtomSequence;
 use log::{debug, error, info};
 use std::convert::TryFrom;
@@ -80,7 +83,7 @@ impl Processor {
             .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
             .map(|p| p.default_value)
             .collect();
-        const EVENT_BUFFER_SIZE: usize = 1048576; // ~262KiB
+        const EVENT_BUFFER_SIZE: usize = 262_144; // ~262KiB
         let event_inputs = plugin
             .ports_with_type(livi::PortType::EventsInput)
             .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
