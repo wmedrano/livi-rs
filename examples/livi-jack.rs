@@ -85,12 +85,12 @@ impl Processor {
             .collect();
         const EVENT_BUFFER_SIZE: usize = 262_144; // ~262KiB
         let event_inputs = plugin
-            .ports_with_type(livi::PortType::EventsInput)
+            .ports_with_type(livi::PortType::AtomSequenceInput)
             .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
             .map(|p| (p, LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let event_outputs = plugin
-            .ports_with_type(livi::PortType::EventsOutput)
+            .ports_with_type(livi::PortType::AtomSequenceOutput)
             .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
             .map(|p| (p, LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();

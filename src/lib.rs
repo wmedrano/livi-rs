@@ -327,8 +327,8 @@ impl Plugin {
                 PortType::ControlOutput => control_outputs.push(port.index),
                 PortType::AudioInput => audio_inputs.push(port.index),
                 PortType::AudioOutput => audio_outputs.push(port.index),
-                PortType::EventsInput => atom_sequence_inputs.push(port.index),
-                PortType::EventsOutput => atom_sequence_outputs.push(port.index),
+                PortType::AtomSequenceInput => atom_sequence_inputs.push(port.index),
+                PortType::AtomSequenceOutput => atom_sequence_outputs.push(port.index),
             }
         }
         Ok(Instance {
@@ -359,15 +359,15 @@ impl Plugin {
             } else if p.is_a(&self.resources.atom_port_uri) {
                 DataType::AtomSequence
             } else {
-                unreachable!("Port is not an audio or control port.")
+                unreachable!("Port is not an audio, control, or atom sequence port.")
             };
             let port_type = match (io_type, data_type) {
                 (IOType::Input, DataType::Control) => PortType::ControlInput,
                 (IOType::Output, DataType::Control) => PortType::ControlOutput,
                 (IOType::Input, DataType::Audio) => PortType::AudioInput,
                 (IOType::Output, DataType::Audio) => PortType::AudioOutput,
-                (IOType::Input, DataType::AtomSequence) => PortType::EventsInput,
-                (IOType::Output, DataType::AtomSequence) => PortType::EventsOutput,
+                (IOType::Input, DataType::AtomSequence) => PortType::AtomSequenceInput,
+                (IOType::Output, DataType::AtomSequence) => PortType::AtomSequenceOutput,
             };
             Port {
                 port_type,
@@ -427,10 +427,10 @@ pub enum PortType {
     AudioOutput,
     /// LV2 atom sequence input. This is used to handle midi, among other
     /// things.
-    EventsInput,
+    AtomSequenceInput,
     /// LV2 atom sequence output. This is used to output midi, among other
     /// things.
-    EventsOutput,
+    AtomSequenceOutput,
 }
 
 /// A port represents a connection (either input or output) to a plugin.
@@ -441,7 +441,7 @@ pub struct Port {
     /// The name of the port.
     pub name: String,
 
-    /// The default value for the port if it is a `ControlInput`.
+    /// The default value for the port if it is a `ControlInputs`.
     pub default_value: f32,
 
     /// The index of this port within the plugin.
@@ -451,40 +451,40 @@ pub struct Port {
 /// All the inputs and outputs for an instance.
 pub struct PortConnections<
     'a,
-    ControlInput,
-    ControlOutput,
-    AudioInput,
-    AudioOutput,
-    AtomSequenceInput,
-    AtomSequenceOutput,
+    ControlInputs,
+    ControlOutputs,
+    AudioInputs,
+    AudioOutputs,
+    AtomSequenceInputs,
+    AtomSequenceOutputs,
 > where
-    ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
-    ControlOutput: ExactSizeIterator + Iterator<Item = &'a mut f32>,
-    AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
-    AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
-    AtomSequenceInput: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
-    AtomSequenceOutput: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+    ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
+    ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
+    AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+    AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+    AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
 {
     /// The number of audio samples that will be processed.
     pub sample_count: usize,
 
     /// The control inputs.
-    pub control_input: ControlInput,
+    pub control_input: ControlInputs,
 
     /// The control outputs.
-    pub control_output: ControlOutput,
+    pub control_output: ControlOutputs,
 
     /// The audio inputs.
-    pub audio_input: AudioInput,
+    pub audio_input: AudioInputs,
 
     /// The audio outputs.
-    pub audio_output: AudioOutput,
+    pub audio_output: AudioOutputs,
 
     /// The events input.
-    pub atom_sequence_input: AtomSequenceInput,
+    pub atom_sequence_input: AtomSequenceInputs,
 
     /// The events output.
-    pub atom_sequence_output: AtomSequenceOutput,
+    pub atom_sequence_output: AtomSequenceOutputs,
 }
 
 /// The index of the port within a plugin.
@@ -502,6 +502,8 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// Run the plugin for a given number of samples.
+    ///
     /// # Safety
     /// Running plugin code is unsafe.
     ///
@@ -509,34 +511,34 @@ impl Instance {
     /// Returns an error if the plugin could not be run.
     pub unsafe fn run<
         'a,
-        ControlInput,
-        ControlOutput,
-        AudioInput,
-        AudioOutput,
-        AtomSequenceInput,
-        AtomSequenceOutput,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
     >(
         &mut self,
         ports: PortConnections<
             'a,
-            ControlInput,
-            ControlOutput,
-            AudioInput,
-            AudioOutput,
-            AtomSequenceInput,
-            AtomSequenceOutput,
+            ControlInputs,
+            ControlOutputs,
+            AudioInputs,
+            AudioOutputs,
+            AtomSequenceInputs,
+            AtomSequenceOutputs,
         >,
     ) -> Result<(), RunError>
     where
-        ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
-        ControlOutput: ExactSizeIterator + Iterator<Item = &'a mut f32>,
-        AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
-        AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
-        AtomSequenceInput: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
-        AtomSequenceOutput: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+        ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
+        ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
+        AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+        AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+        AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+        AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
     {
         if ports.control_input.len() != self.control_inputs.len() {
-            return Err(RunError::ControlInputSizeMismatch {
+            return Err(RunError::ControlInputsSizeMismatch {
                 expected: self.control_inputs.len(),
                 actual: ports.control_input.len(),
             });
@@ -547,7 +549,7 @@ impl Instance {
                 .connect_port_ptr(index.0, data as *const f32 as *mut f32);
         }
         if ports.control_output.len() != self.control_outputs.len() {
-            return Err(RunError::ControlOutputSizeMismatch {
+            return Err(RunError::ControlOutputsSizeMismatch {
                 expected: self.control_outputs.len(),
                 actual: ports.control_output.len(),
             });
@@ -556,7 +558,7 @@ impl Instance {
             self.inner.instance_mut().connect_port_ptr(index.0, data);
         }
         if ports.audio_input.len() != self.audio_inputs.len() {
-            return Err(RunError::AudioInputSizeMismatch {
+            return Err(RunError::AudioInputsSizeMismatch {
                 expected: self.audio_inputs.len(),
                 actual: ports.audio_input.len(),
             });
@@ -567,7 +569,7 @@ impl Instance {
                 .connect_port_ptr(index.0, data.as_ptr() as *mut f32);
         }
         if ports.audio_output.len() != self.audio_outputs.len() {
-            return Err(RunError::AudioOutputSizeMismatch {
+            return Err(RunError::AudioOutputsSizeMismatch {
                 expected: self.audio_outputs.len(),
                 actual: ports.audio_output.len(),
             });
@@ -578,7 +580,7 @@ impl Instance {
                 .connect_port_ptr(index.0, data.as_mut_ptr());
         }
         if ports.atom_sequence_input.len() != self.atom_sequence_inputs.len() {
-            return Err(RunError::AtomSequenceInputSizeMismatch {
+            return Err(RunError::AtomSequenceInputsSizeMismatch {
                 expected: self.atom_sequence_inputs.len(),
                 actual: ports.atom_sequence_input.len(),
             });
@@ -592,7 +594,7 @@ impl Instance {
                 .connect_port_ptr(index.0, data.as_ptr() as *mut lv2_raw::LV2AtomSequence);
         }
         if ports.atom_sequence_output.len() != self.atom_sequence_outputs.len() {
-            return Err(RunError::AtomSequenceOutputSizeMismatch {
+            return Err(RunError::AtomSequenceOutputsSizeMismatch {
                 expected: self.atom_sequence_outputs.len(),
                 actual: ports.atom_sequence_output.len(),
             });

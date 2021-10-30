@@ -40,23 +40,23 @@ pub enum Event {
 pub enum Run {
     /// The number of control inputs was different than what the plugin
     /// required.
-    ControlInputSizeMismatch { expected: usize, actual: usize },
+    ControlInputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of control outputs was different than what the plugin
     /// required.
-    ControlOutputSizeMismatch { expected: usize, actual: usize },
+    ControlOutputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of audio inputs was different than what the plugin required.
-    AudioInputSizeMismatch { expected: usize, actual: usize },
+    AudioInputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of audio outputs was different than what the plugin required.
-    AudioOutputSizeMismatch { expected: usize, actual: usize },
+    AudioOutputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of atom sequence inputs was different than what the plugin
     /// required.
-    AtomSequenceInputSizeMismatch { expected: usize, actual: usize },
+    AtomSequenceInputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of atom sequence outputs was different than what the plugin
     /// required.
-    AtomSequenceOutputSizeMismatch { expected: usize, actual: usize },
+    AtomSequenceOutputsSizeMismatch { expected: usize, actual: usize },
 }

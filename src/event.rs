@@ -236,15 +236,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sequence() {
+    fn test_sequence_push_events_and_iter_events() {
         let mut sequence = LV2AtomSequence::new(4096);
-        let event = LV2AtomEventBuilder::<8>::new(0, 0, &[0, 1, 2, 3, 4, 5, 6, 7]).unwrap();
+        let event = LV2AtomEventBuilder::<8>::new(0, 0, &[0, 10, 20, 30, 40, 50, 60, 70]).unwrap();
         for _ in 0..10 {
             sequence.push_event(&event).unwrap();
         }
         assert_eq!(10, sequence.iter().count());
         for event in sequence.iter() {
-            assert_eq!(event.data, &[0, 1, 2, 3, 4, 5, 6, 7]);
+            assert_eq!(event.data, &[0, 10, 20, 30, 40, 50, 60, 70]);
         }
     }
 }
