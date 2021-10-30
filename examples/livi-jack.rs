@@ -132,15 +132,16 @@ fn main() {
         .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
         .map(|p| p.default_value)
         .collect();
+    const EVENT_BUFFER_SIZE: usize = 1048576; // ~262KiB
     let event_inputs = plugin
         .ports_with_type(livi::PortType::EventsInput)
         .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
-        .map(|p| (p, livi::event::LV2AtomSequence::new(4096)))
+        .map(|p| (p, livi::event::LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
         .collect::<Vec<_>>();
     let event_outputs = plugin
         .ports_with_type(livi::PortType::EventsOutput)
         .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
-        .map(|p| (p, livi::event::LV2AtomSequence::new(4096)))
+        .map(|p| (p, livi::event::LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
         .collect::<Vec<_>>();
     let process_handler = Processor {
         plugin: plugin_instance,
