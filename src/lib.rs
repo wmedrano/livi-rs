@@ -3,6 +3,7 @@ use log::{error, info, warn};
 use lv2_raw::LV2Feature;
 use std::{
     collections::HashSet,
+    ffi::CStr,
     sync::{Arc, Mutex},
 };
 
@@ -33,13 +34,49 @@ impl Resources {
 
 struct Features {
     urid_map: features::urid_map::UridMap,
+    options: features::options::Options,
+    min_and_max_block_length: Option<(i32, i32)>,
 }
 
 impl Features {
     fn new() -> Features {
         Features {
             urid_map: features::urid_map::UridMap::new(),
+            options: features::options::Options::new(),
+            min_and_max_block_length: None,
         }
+    }
+
+    fn all_initialized(&self) -> bool {
+        self.min_and_max_block_length.is_some()
+    }
+
+    fn initialize_block_length(
+        &mut self,
+        min_block_length: i32,
+        max_block_length: i32,
+    ) -> Result<(), InitializeBlockLengthError> {
+        if self.min_and_max_block_length.is_some() {
+            return Err(InitializeBlockLengthError::BlockLengthAlreadyInitialized);
+        }
+        self.options.set_int_option(
+            &self.urid_map,
+            self.urid_map.map(
+                CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#minBlockLength\0")
+                    .unwrap(),
+            ),
+            min_block_length,
+        );
+        self.options.set_int_option(
+            &self.urid_map,
+            self.urid_map.map(
+                CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#maxBlockLength\0")
+                    .unwrap(),
+            ),
+            max_block_length,
+        );
+        self.min_and_max_block_length = Some((min_block_length, max_block_length));
+        Ok(())
     }
 
     fn supported_features(&self) -> HashSet<String> {
@@ -55,6 +92,8 @@ impl Features {
     fn iter_features(&self) -> impl Iterator<Item = &'_ LV2Feature> {
         std::iter::once(self.urid_map.as_urid_map_feature())
             .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
+            .chain(std::iter::once(self.options.as_feature()))
+            .chain(std::iter::once(&features::BOUNDED_BLOCK_LENGTH))
     }
 }
 
@@ -161,6 +200,38 @@ impl World {
             resources: self.resources.clone(),
         })
     }
+
+    /// Initialize the block length. This must be called before any plugins are
+    /// instantiated and may only be called once.
+    pub fn initialize_block_length(
+        &mut self,
+        min_block_length: usize,
+        max_block_length: usize,
+    ) -> Result<(), InitializeBlockLengthError> {
+        if min_block_length > i32::MAX as usize {
+            return Err(InitializeBlockLengthError::MinBlockLengthTooLarge);
+        }
+        if max_block_length > i32::MAX as usize {
+            return Err(InitializeBlockLengthError::MaxBlockLengthTooLarge);
+        }
+        self.resources
+            .features
+            .lock()
+            .unwrap()
+            .initialize_block_length(min_block_length as i32, max_block_length as i32)
+    }
+}
+
+/// An error that occurs when initializing the block length LV2 feature.
+#[derive(Debug)]
+pub enum InitializeBlockLengthError {
+    /// The minimum block length is too large.
+    MinBlockLengthTooLarge,
+    /// The maximum block length is too large.
+    MaxBlockLengthTooLarge,
+    /// The block length has already been initialized. It cannot be initialized
+    /// again since existing plugins may have already been instantiated.
+    BlockLengthAlreadyInitialized,
 }
 
 impl Default for World {
@@ -177,6 +248,8 @@ pub enum InstantiateError {
     /// The plugin was found to have too many atom ports. Only up to 1 atom port
     /// is supported.
     TooManyEventsInputs,
+    /// `World::initialize_block_length` has not yet been called.
+    BlockLengthNotInitialized,
 }
 
 /// A plugin that can be used to instantiate plugin instances.
@@ -202,12 +275,13 @@ impl Plugin {
     /// # Safety
     /// Running plugin code is unsafe.
     pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
+        let features = self.resources.features.lock().unwrap();
+        if !features.all_initialized() {
+            return Err(InstantiateError::BlockLengthNotInitialized);
+        }
         let instance = self
             .inner
-            .instantiate(
-                sample_rate,
-                self.resources.features.lock().unwrap().iter_features(),
-            )
+            .instantiate(sample_rate, features.iter_features())
             .ok_or(InstantiateError::UnknownError)?;
         let mut control_inputs = Vec::new();
         let mut audio_inputs = Vec::new();
