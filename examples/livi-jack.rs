@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{debug, error, info};
 use structopt::StructOpt;
 
 /// The configuration for the backend.
@@ -75,7 +75,12 @@ fn main() {
                         midi.bytes,
                     ) {
                         Ok(_) => (),
-                        Err(e) => error!("Failed to push midi event: {:?}", e),
+                        Err(e) => {
+                            // This should be a warning, but we don't want to
+                            // hurt performance for something that may not be an
+                            // issue that the user can fix.
+                            debug!("Failed to push midi event: {:?}", e)
+                        }
                     }
                 }
             }
