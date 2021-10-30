@@ -3,7 +3,7 @@ use lv2_sys::LV2_Options_Option;
 use std::convert::TryFrom;
 use std::{collections::HashMap, ffi::CStr};
 
-static URI: &[u8] = b"http://lv2plug.in/ns/ext/options#options\0";
+static OPTIONS_FEATURE_URI: &[u8] = b"http://lv2plug.in/ns/ext/options#options\0";
 
 const EMPTY_OPTION: LV2_Options_Option = LV2_Options_Option {
     context: 0,
@@ -23,16 +23,20 @@ pub struct Options {
 
 impl Options {
     pub fn new() -> Options {
-        let mut o = Options {
-            data: vec![EMPTY_OPTION],
+        let mut data = vec![EMPTY_OPTION];
+        let data_ptr = data.as_mut_ptr();
+        Options {
+            data,
             values: HashMap::new(),
             feature: LV2Feature {
-                uri: URI.as_ptr().cast(),
-                data: std::ptr::null_mut(),
+                uri: OPTIONS_FEATURE_URI.as_ptr().cast(),
+                data: data_ptr.cast(),
             },
-        };
-        o.fix_feature_pointer();
-        o
+        }
+    }
+
+    pub fn as_feature(&self) -> &LV2Feature {
+        &self.feature
     }
 
     pub fn set_int_option(
@@ -48,8 +52,7 @@ impl Options {
         let value = Box::new(value);
         let value_ptr = value.as_ref() as *const i32;
         self.values.insert(key, value);
-        self.data.pop();
-        self.data.push(LV2_Options_Option {
+        self.push_option(LV2_Options_Option {
             context: 0,
             subject: 0,
             key,
@@ -59,16 +62,13 @@ impl Options {
                 .map(CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Int\0").unwrap()),
             value: value_ptr.cast(),
         });
-        self.data.push(EMPTY_OPTION);
-        self.fix_feature_pointer();
     }
 
-    fn fix_feature_pointer(&mut self) {
+    fn push_option(&mut self, option: LV2_Options_Option) {
+        self.data.pop(); // Remove the last `EMPTY_OPTION`.
+        self.data.push(option);
+        self.data.push(EMPTY_OPTION);
         let data_ptr = self.data.as_mut_ptr();
         self.feature.data = data_ptr.cast();
-    }
-
-    pub fn as_feature(&self) -> &LV2Feature {
-        &self.feature
     }
 }
