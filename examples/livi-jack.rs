@@ -68,7 +68,15 @@ fn main() {
             for (port, buffer) in events_in.iter_mut() {
                 buffer.clear();
                 for midi in port.iter(ps) {
-                    buffer.append_midi_event(midi.time as i64, midi_urid, midi.bytes);
+                    const MAX_SUPPORTED_MIDI_SIZE: usize = 32;
+                    match buffer.push_midi_event::<MAX_SUPPORTED_MIDI_SIZE>(
+                        midi.time as i64,
+                        midi_urid,
+                        midi.bytes,
+                    ) {
+                        Ok(_) => (),
+                        Err(e) => error!("Failed to push midi event: {:?}", e),
+                    }
                 }
             }
 
