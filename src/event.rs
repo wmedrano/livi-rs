@@ -212,8 +212,8 @@ impl<'a> Debug for LV2AtomSequenceIter<'a> {
 /// since it does not guarantee that `event` and `data` are linked together
 /// properly in terms of pointers and data layout.
 pub struct LV2AtomEventWithData<'a> {
-    event: &'a lv2_raw::LV2AtomEvent,
-    data: &'a [u8],
+    pub event: &'a lv2_raw::LV2AtomEvent,
+    pub data: &'a [u8],
 }
 
 impl<'a> Debug for LV2AtomEventWithData<'a> {

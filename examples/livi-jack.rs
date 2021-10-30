@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use structopt::StructOpt;
 
 /// The configuration for the backend.
@@ -26,7 +26,7 @@ fn main() {
     let plugin = livi
         .iter_plugins()
         .find(|p| p.uri() == config.plugin_uri)
-        .unwrap();
+        .unwrap_or_else(|| panic!("Could not find plugin with URI {}", config.plugin_uri));
 
     let (client, status) =
         jack::Client::new(&plugin.name(), jack::ClientOptions::NO_START_SERVER).unwrap();
@@ -50,7 +50,12 @@ fn main() {
         .collect();
     let controls: Vec<f32> = plugin
         .ports_with_type(livi::PortType::ControlInput)
-        .inspect(|p| info!("Using {} = {}", p.name, p.default_value))
+        .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
+        .map(|p| p.default_value)
+        .collect();
+    let mut control_outputs: Vec<f32> = plugin
+        .ports_with_type(livi::PortType::ControlOutput)
+        .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
         .map(|p| p.default_value)
         .collect();
     let mut events_in = plugin
@@ -89,6 +94,7 @@ fn main() {
             let ports = livi::PortConnections {
                 frames: ps.n_frames() as usize,
                 control_input: controls.iter(),
+                control_output: control_outputs.iter_mut(),
                 audio_input: inputs.iter().map(|p| p.as_slice(ps)),
                 audio_output: outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
                 atom_sequence_input: events_in.iter().map(|(_, e)| e),
@@ -101,8 +107,25 @@ fn main() {
                     return jack::Control::Quit;
                 }
             }
-            for (_, _) in &mut events_out.iter_mut() {
-                unimplemented!("events cannot yet be output to midi");
+            for (dst, src) in &mut events_out.iter_mut() {
+                let mut writer = dst.writer(ps);
+                for event in src.iter() {
+                    if event.event.body.mytype != midi_urid {
+                        warn!(
+                            "Found non-midi event with URID: {}",
+                            event.event.body.mytype
+                        );
+                        continue;
+                    }
+                    let jack_event = jack::RawMidi {
+                        time: event.event.time_in_frames as u32,
+                        bytes: event.data,
+                    };
+                    match writer.write(&jack_event) {
+                        Ok(()) => (),
+                        Err(e) => error!("Failed to write midi event: {:?}", e),
+                    }
+                }
             }
             jack::Control::Continue
         });

@@ -315,6 +315,7 @@ impl Plugin {
             .instantiate(sample_rate, features.iter_features())
             .ok_or(error::Instantiate::UnknownError)?;
         let mut control_inputs = Vec::new();
+        let mut control_outputs = Vec::new();
         let mut audio_inputs = Vec::new();
         let mut audio_outputs = Vec::new();
         let mut atom_sequence_inputs = Vec::new();
@@ -322,7 +323,7 @@ impl Plugin {
         for port in self.ports() {
             match port.port_type {
                 PortType::ControlInput => control_inputs.push(port.index),
-                PortType::ControlOutput => unimplemented!("control output not yet supported"),
+                PortType::ControlOutput => control_outputs.push(port.index),
                 PortType::AudioInput => audio_inputs.push(port.index),
                 PortType::AudioOutput => audio_outputs.push(port.index),
                 PortType::EventsInput => atom_sequence_inputs.push(port.index),
@@ -332,6 +333,7 @@ impl Plugin {
         Ok(Instance {
             inner: instance.activate(),
             control_inputs,
+            control_outputs,
             audio_inputs,
             audio_outputs,
             atom_sequence_inputs,
@@ -449,12 +451,14 @@ pub struct Port {
 pub struct PortConnections<
     'a,
     ControlInput,
+    ControlOutput,
     AudioInput,
     AudioOutput,
     AtomSequenceInput,
     AtomSequenceOutput,
 > where
     ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
+    ControlOutput: ExactSizeIterator + Iterator<Item = &'a mut f32>,
     AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     AtomSequenceInput: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
@@ -465,6 +469,9 @@ pub struct PortConnections<
 
     /// The control inputs.
     pub control_input: ControlInput,
+
+    /// The control outputs.
+    pub control_output: ControlOutput,
 
     /// The audio inputs.
     pub audio_input: AudioInput,
@@ -486,6 +493,7 @@ pub struct PortIndex(pub usize);
 pub struct Instance {
     inner: lilv::instance::ActiveInstance,
     control_inputs: Vec<PortIndex>,
+    control_outputs: Vec<PortIndex>,
     audio_inputs: Vec<PortIndex>,
     audio_outputs: Vec<PortIndex>,
     atom_sequence_inputs: Vec<PortIndex>,
@@ -501,6 +509,7 @@ impl Instance {
     pub unsafe fn run<
         'a,
         ControlInput,
+        ControlOutput,
         AudioInput,
         AudioOutput,
         AtomSequenceInput,
@@ -510,6 +519,7 @@ impl Instance {
         ports: PortConnections<
             'a,
             ControlInput,
+            ControlOutput,
             AudioInput,
             AudioOutput,
             AtomSequenceInput,
@@ -518,6 +528,7 @@ impl Instance {
     ) -> Result<(), RunError>
     where
         ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
+        ControlOutput: ExactSizeIterator + Iterator<Item = &'a mut f32>,
         AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
         AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
         AtomSequenceInput: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
@@ -530,6 +541,12 @@ impl Instance {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data as *const f32 as *mut f32);
+        }
+        if ports.control_output.len() != self.control_outputs.len() {
+            return Err(RunError::ControlOutputSizeMismatch);
+        }
+        for (data, index) in ports.control_output.zip(self.control_outputs.iter()) {
+            self.inner.instance_mut().connect_port_ptr(index.0, data);
         }
         if ports.audio_input.len() != self.audio_inputs.len() {
             return Err(RunError::AudioInputSizeMismatch);
@@ -577,6 +594,10 @@ pub enum RunError {
     /// The number of control inputs was different than what the plugin
     /// required.
     ControlInputSizeMismatch,
+
+    /// The number of control outputs was different than what the plugin
+    /// required.
+    ControlOutputSizeMismatch,
 
     /// The number of audio inputs was different than what the plugin required.
     AudioInputSizeMismatch,
