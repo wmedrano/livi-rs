@@ -8,7 +8,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// Contains all the error types for the `livi` crate.
 pub mod error;
+/// Contains utility for dealing with `LV2` events.
 pub mod event;
 mod features;
 
@@ -37,7 +39,7 @@ impl Resources {
 struct Features {
     urid_map: features::urid_map::UridMap,
     options: features::options::Options,
-    min_and_max_block_length: Option<(i32, i32)>,
+    min_and_max_block_length: Option<(usize, usize)>,
 }
 
 impl Features {
@@ -51,19 +53,36 @@ impl Features {
 
     fn initialize_block_length(
         &mut self,
-        min_block_length: i32,
-        max_block_length: i32,
+        min_block_length: usize,
+        max_block_length: usize,
     ) -> Result<(), error::InitializeBlockLength> {
-        if self.min_and_max_block_length.is_some() {
-            return Err(error::InitializeBlockLength::BlockLengthAlreadyInitialized);
+        if let Some((min_block_length, max_block_length)) = self.min_and_max_block_length {
+            return Err(
+                error::InitializeBlockLength::BlockLengthAlreadyInitialized {
+                    min_block_length,
+                    max_block_length,
+                },
+            );
         }
+        let min = i32::try_from(min_block_length).map_err(|_| {
+            error::InitializeBlockLength::MinBlockLengthTooLarge {
+                max_supported: i32::MAX as usize,
+                actual: min_block_length,
+            }
+        })?;
+        let max = i32::try_from(max_block_length).map_err(|_| {
+            error::InitializeBlockLength::MaxBlockLengthTooLarge {
+                max_supported: i32::MAX as usize,
+                actual: max_block_length,
+            }
+        })?;
         self.options.set_int_option(
             &self.urid_map,
             self.urid_map.map(
                 CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#minBlockLength\0")
                     .unwrap(),
             ),
-            min_block_length,
+            min,
         );
         self.options.set_int_option(
             &self.urid_map,
@@ -71,7 +90,7 @@ impl Features {
                 CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#maxBlockLength\0")
                     .unwrap(),
             ),
-            max_block_length,
+            max,
         );
         self.min_and_max_block_length = Some((min_block_length, max_block_length));
         Ok(())
@@ -246,12 +265,7 @@ impl World {
             .features
             .lock()
             .unwrap()
-            .initialize_block_length(
-                i32::try_from(min_block_length)
-                    .map_err(|_| error::InitializeBlockLength::MinBlockLengthTooLarge)?,
-                i32::try_from(max_block_length)
-                    .map_err(|_| error::InitializeBlockLength::MaxBlockLengthTooLarge)?,
-            )
+            .initialize_block_length(min_block_length, max_block_length)
     }
 }
 
@@ -402,11 +416,11 @@ enum DataType {
 pub enum PortType {
     /// A single `&f32`.
     ControlInput,
-    /// A single `&mut f32`. This is not supported.
+    /// A single `&mut f32`. This is not yet supported.
     ControlOutput,
-    /// A `&[f32]`.
+    /// An `&[f32]`.
     AudioInput,
-    /// And `&mut [f32]`.
+    /// An `&mut [f32]`.
     AudioOutput,
     /// LV2 atom sequence input. This is used to handle midi, among other
     /// things.
@@ -420,15 +434,19 @@ pub enum PortType {
 pub struct Port {
     /// The type of port.
     pub port_type: PortType,
+
     /// The name of the port.
     pub name: String,
+
     /// The default value for the port if it is a `ControlInput`.
     pub default_value: f32,
-    index: PortIndex,
+
+    /// The index of this port within the plugin.
+    pub index: PortIndex,
 }
 
 /// All the inputs and outputs for an instance.
-pub struct PortValues<
+pub struct PortConnections<
     'a,
     ControlInput,
     AudioInput,
@@ -462,7 +480,7 @@ pub struct PortValues<
 }
 
 /// The index of the port within a plugin.
-pub struct PortIndex(usize);
+pub struct PortIndex(pub usize);
 
 /// An instance of a plugin that can process inputs and outputs.
 pub struct Instance {
@@ -489,7 +507,7 @@ impl Instance {
         AtomSequenceOutput,
     >(
         &mut self,
-        ports: PortValues<
+        ports: PortConnections<
             'a,
             ControlInput,
             AudioInput,

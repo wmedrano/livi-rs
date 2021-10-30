@@ -86,7 +86,7 @@ fn main() {
                 }
             }
 
-            let ports = livi::PortValues {
+            let ports = livi::PortConnections {
                 frames: ps.n_frames() as usize,
                 control_input: controls.iter(),
                 audio_input: inputs.iter().map(|p| p.as_slice(ps)),

@@ -2,12 +2,15 @@
 #[derive(Copy, Clone, Debug)]
 pub enum InitializeBlockLength {
     /// The minimum block length is too large.
-    MinBlockLengthTooLarge,
+    MinBlockLengthTooLarge { max_supported: usize, actual: usize },
     /// The maximum block length is too large.
-    MaxBlockLengthTooLarge,
+    MaxBlockLengthTooLarge { max_supported: usize, actual: usize },
     /// The block length has already been initialized. It cannot be initialized
     /// again since existing plugins may have already been instantiated.
-    BlockLengthAlreadyInitialized,
+    BlockLengthAlreadyInitialized {
+        min_block_length: usize,
+        max_block_length: usize,
+    },
 }
 
 /// An error with plugin instantiation.
@@ -15,9 +18,6 @@ pub enum InitializeBlockLength {
 pub enum Instantiate {
     /// An error ocurred, but it is not known why.
     UnknownError,
-    /// The plugin was found to have too many atom ports. Only up to 1 atom port
-    /// is supported.
-    TooManyEventsInputs,
     /// `World::initialize_block_length` has not yet been called.
     BlockLengthNotInitialized,
 }
