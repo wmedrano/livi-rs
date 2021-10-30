@@ -1,6 +1,6 @@
 /// An error that occurs when initializing the block length LV2 feature.
 #[derive(Copy, Clone, Debug)]
-pub enum InitializeBlockLengthError {
+pub enum InitializeBlockLength {
     /// The minimum block length is too large.
     MinBlockLengthTooLarge,
     /// The maximum block length is too large.
@@ -12,7 +12,7 @@ pub enum InitializeBlockLengthError {
 
 /// An error with plugin instantiation.
 #[derive(Copy, Clone, Debug)]
-pub enum InstantiateError {
+pub enum Instantiate {
     /// An error ocurred, but it is not known why.
     UnknownError,
     /// The plugin was found to have too many atom ports. Only up to 1 atom port
@@ -24,7 +24,7 @@ pub enum InstantiateError {
 
 /// An error that occurs when dealing with atom events.
 #[derive(Copy, Clone, Debug)]
-pub enum EventError {
+pub enum Event {
     /// The size of the data is too large than what is supported for the event.
     DataTooLarge {
         max_supported_size: usize,

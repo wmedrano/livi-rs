@@ -1,7 +1,7 @@
 use crate::event::LV2AtomSequence;
-use error::{InitializeBlockLengthError, InstantiateError};
 use log::{error, info, warn};
 use lv2_raw::LV2Feature;
+use std::convert::TryFrom;
 use std::{
     collections::HashSet,
     ffi::CStr,
@@ -53,9 +53,9 @@ impl Features {
         &mut self,
         min_block_length: i32,
         max_block_length: i32,
-    ) -> Result<(), InitializeBlockLengthError> {
+    ) -> Result<(), error::InitializeBlockLength> {
         if self.min_and_max_block_length.is_some() {
-            return Err(InitializeBlockLengthError::BlockLengthAlreadyInitialized);
+            return Err(error::InitializeBlockLength::BlockLengthAlreadyInitialized);
         }
         self.options.set_int_option(
             &self.urid_map,
@@ -107,6 +107,10 @@ impl World {
     /// Create a new world that includes all plugins that are found and are
     /// supported.  Plugins that are not supported will be listed with a `warn!`
     /// message.
+    ///
+    /// # Panics
+    /// Panics if the world resources mutex could not be locked.
+    #[must_use]
     pub fn new() -> World {
         let world = lilv::World::with_load_all();
         let resources = Arc::new(Resources::new(&world));
@@ -183,11 +187,20 @@ impl World {
     /// Get the URID of a URI. This value is only guaranteed to be valid for
     /// instances spawned from this world. It is not guaranteed to be stable
     /// across different runs.
+    ///
+    /// # Panics
+    /// Panics if the world resource mutex could not be locked.
+    #[must_use]
     pub fn urid(&self, uri: &std::ffi::CStr) -> lv2_raw::LV2Urid {
         self.resources.features.lock().unwrap().urid_map.map(uri)
     }
 
     /// The URID for midi events.
+    ///
+    /// # Panics
+    /// Panics if a `CStr` could not be built for the Midi URI. This behavior is
+    /// well tested and of negligible risk.
+    #[must_use]
     pub fn midi_urid(&self) -> lv2_raw::LV2Urid {
         self.urid(
             std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/midi#MidiEvent\0")
@@ -204,6 +217,7 @@ impl World {
     }
 
     /// Return the plugin given a URI or `None` if it does not exist.
+    #[must_use]
     pub fn plugin_by_uri(&self, uri: &str) -> Option<Plugin> {
         self.plugins
             .iter()
@@ -217,22 +231,27 @@ impl World {
     /// Initialize the block length. This is the minimum and maximum number of
     /// samples that are processed per `run` method. This must be called before
     /// any plugins are instantiated and may only be called once.
+    ///
+    /// # Errors
+    /// Returns an error if the block lengths are invalid.
+    ///
+    /// # Panics
+    /// Panics if the world resource mutex could not be locked.
     pub fn initialize_block_length(
         &mut self,
         min_block_length: usize,
         max_block_length: usize,
-    ) -> Result<(), InitializeBlockLengthError> {
-        if min_block_length > i32::MAX as usize {
-            return Err(InitializeBlockLengthError::MinBlockLengthTooLarge);
-        }
-        if max_block_length > i32::MAX as usize {
-            return Err(InitializeBlockLengthError::MaxBlockLengthTooLarge);
-        }
+    ) -> Result<(), error::InitializeBlockLength> {
         self.resources
             .features
             .lock()
             .unwrap()
-            .initialize_block_length(min_block_length as i32, max_block_length as i32)
+            .initialize_block_length(
+                i32::try_from(min_block_length)
+                    .map_err(|_| error::InitializeBlockLength::MinBlockLengthTooLarge)?,
+                i32::try_from(max_block_length)
+                    .map_err(|_| error::InitializeBlockLength::MaxBlockLengthTooLarge)?,
+            )
     }
 }
 
@@ -251,28 +270,36 @@ pub struct Plugin {
 
 impl Plugin {
     /// A unique identifier for the plugin.
+    #[must_use]
     pub fn uri(&self) -> String {
         self.inner.uri().as_str().unwrap_or("BAD_URI").to_string()
     }
 
     /// The name of the plugin.
+    #[must_use]
     pub fn name(&self) -> String {
         self.inner.name().as_str().unwrap_or("BAD_NAME").to_string()
     }
 
     /// Create a new instance of the plugin.
     ///
+    /// # Errors
+    /// Returns an error if the plugin could not be instantiated.
+    ///
     /// # Safety
     /// Running plugin code is unsafe.
-    pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
+    ///
+    /// # Panics
+    /// Panics if the world resource mutex could not be locked.
+    pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, error::Instantiate> {
         let features = self.resources.features.lock().unwrap();
         if features.min_and_max_block_length.is_none() {
-            return Err(InstantiateError::BlockLengthNotInitialized);
+            return Err(error::Instantiate::BlockLengthNotInitialized);
         }
         let instance = self
             .inner
             .instantiate(sample_rate, features.iter_features())
-            .ok_or(InstantiateError::UnknownError)?;
+            .ok_or(error::Instantiate::UnknownError)?;
         let mut control_inputs = Vec::new();
         let mut audio_inputs = Vec::new();
         let mut audio_outputs = Vec::new();
@@ -450,6 +477,9 @@ pub struct Instance {
 impl Instance {
     /// # Safety
     /// Running plugin code is unsafe.
+    ///
+    /// # Errors
+    /// Returns an error if the plugin could not be run.
     pub unsafe fn run<
         'a,
         ControlInput,
@@ -508,7 +538,7 @@ impl Instance {
         {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_ptr() as *mut LV2AtomSequence);
+                .connect_port_ptr(index.0, data.as_ptr() as *mut lv2_raw::LV2AtomSequence);
         }
         for (data, index) in ports
             .atom_sequence_output

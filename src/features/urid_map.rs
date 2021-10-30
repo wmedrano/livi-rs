@@ -1,5 +1,6 @@
 use lv2_raw::LV2Feature;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::sync::Mutex;
 
@@ -14,12 +15,11 @@ extern "C" fn do_map(handle: lv2_raw::LV2UridMapHandle, uri_ptr: *const i8) -> l
     let uri = unsafe { CStr::from_ptr(uri_ptr) };
 
     if let Some(id) = map.get(uri) {
-        *id
-    } else {
-        let id = map.len() as u32 + 1;
-        map.insert(uri.to_owned(), id);
-        id
+        return *id;
     }
+    let id = u32::try_from(map.len()).expect("URID space has exceeded capacity for u32.") + 1;
+    map.insert(uri.to_owned(), id);
+    id
 }
 
 extern "C" fn do_unmap(handle: lv2_sys::LV2_URID_Map_Handle, urid: lv2_raw::LV2Urid) -> *const i8 {
@@ -36,7 +36,7 @@ extern "C" fn do_unmap(handle: lv2_sys::LV2_URID_Map_Handle, urid: lv2_raw::LV2U
 
 pub struct UridMap {
     _map: Box<Mutex<HashMap<CString, u32>>>,
-    _map_data: Box<lv2_raw::LV2UridMap>,
+    map_data: Box<lv2_raw::LV2UridMap>,
     _unmap_data: Box<lv2_sys::LV2_URID_Unmap>,
     urid_map_feature: LV2Feature,
     urid_unmap_feature: LV2Feature,
@@ -58,7 +58,7 @@ impl UridMap {
         let unmap_data_ptr = unmap_data.as_ref() as *const _ as *mut _;
         UridMap {
             _map: map,
-            _map_data: map_data,
+            map_data,
             _unmap_data: unmap_data,
             urid_map_feature: LV2Feature {
                 uri: URID_MAP.as_ptr().cast(),
@@ -72,7 +72,7 @@ impl UridMap {
     }
 
     pub fn map(&self, uri: &CStr) -> u32 {
-        do_map(self._map_data.handle, uri.as_ptr())
+        do_map(self.map_data.handle, uri.as_ptr())
     }
 
     pub fn as_urid_map_feature(&self) -> &LV2Feature {

@@ -1,7 +1,7 @@
-use std::fmt::Debug;
-
-use crate::error::EventError;
+use crate::error;
 use lv2_raw::LV2Atom;
+use std::convert::TryFrom;
+use std::fmt::Debug;
 
 /// A builder for a single atom event. The max size of the data contained in the
 /// event is `MAX_SIZE`.
@@ -17,14 +17,17 @@ pub struct LV2AtomEventBuilder<const MAX_SIZE: usize> {
 impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
     /// Create a new atom event with the given time and type. The event can be
     /// filled in by setting the bytes in buffer and calling `set_size`.
+    ///
+    /// # Errors
+    /// Returns an error if the size of the buffer is greater than `MAX_SIZE`.
     pub fn new(
         time_in_frames: i64,
         my_type: u32,
         data: &[u8],
-    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, EventError> {
+    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::Event> {
         let mut buffer = [0; MAX_SIZE];
         if data.len() > buffer.len() {
-            return Err(EventError::DataTooLarge {
+            return Err(error::Event::DataTooLarge {
                 max_supported_size: MAX_SIZE,
                 actual_size: data.len(),
             });
@@ -34,7 +37,7 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
             _event: lv2_raw::LV2AtomEvent {
                 time_in_frames,
                 body: LV2Atom {
-                    size: data.len() as u32,
+                    size: u32::try_from(data.len()).expect("Size exceeds u32 capacity."),
                     mytype: my_type,
                 },
             },
@@ -42,7 +45,9 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
         })
     }
 
-    /// Return a pointer to the LV2AtomEvent.
+    /// Return a pointer to the `LV2AtomEvent` that is immediately followed by
+    /// its data.
+    #[must_use]
     pub fn as_ptr(&self) -> *const lv2_raw::LV2AtomEvent {
         let ptr = self as *const LV2AtomEventBuilder<MAX_SIZE>;
         ptr.cast()
@@ -56,6 +61,7 @@ pub struct LV2AtomSequence {
 
 impl LV2AtomSequence {
     /// Create a new sequence that can hold about `desired_capacity` bytes.
+    #[must_use]
     pub fn new(desired_capacity: usize) -> LV2AtomSequence {
         let len = desired_capacity / std::mem::size_of::<lv2_raw::LV2AtomSequence>();
         let mut buffer = Vec::with_capacity(len);
@@ -79,7 +85,7 @@ impl LV2AtomSequence {
         unsafe {
             lv2_raw::atomutils::lv2_atom_sequence_append_event(
                 self.as_mut_ptr(),
-                self.capacity() as u32,
+                u32::try_from(self.capacity()).expect("Size exceeds capacity of u32."),
                 event.as_ptr(),
             )
         };
@@ -87,28 +93,34 @@ impl LV2AtomSequence {
 
     /// Push a new midi event into the sequence. The `midi_data` must be of size
     /// `MAX_SIZE` or smaller. If this is not the case, an error is returned.
+    ///
+    /// # Errors
+    /// Returns an error if the midi data is too large.
     pub fn push_midi_event<const MAX_SIZE: usize>(
         &mut self,
         time_in_frames: i64,
         midi_uri: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<(), EventError> {
+    ) -> Result<(), error::Event> {
         let event = LV2AtomEventBuilder::<MAX_SIZE>::new(time_in_frames, midi_uri, data)?;
         self.push_event(&event);
         Ok(())
     }
 
     /// Return a pointer to the underlying data.
+    #[must_use]
     pub fn as_ptr(&self) -> *const lv2_raw::LV2AtomSequence {
         self.buffer.as_ptr()
     }
 
     /// Return a mutable pointer to the underlying data.
+    #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut lv2_raw::LV2AtomSequence {
         self.buffer.as_mut_ptr()
     }
 
     /// Get the capacity of the sequence.
+    #[must_use]
     pub fn capacity(&self) -> usize {
         let slice: &[lv2_raw::LV2AtomSequence] = &self.buffer;
         std::mem::size_of_val(slice)

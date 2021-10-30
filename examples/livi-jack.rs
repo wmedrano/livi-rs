@@ -35,6 +35,7 @@ fn main() {
     let midi_urid = livi.midi_urid();
     livi.initialize_block_length(client.buffer_size() as usize, client.buffer_size() as usize)
         .unwrap();
+    #[allow(clippy::cast_precision_loss)]
     let mut plugin_instance = unsafe { plugin.instantiate(client.sample_rate() as f64).unwrap() };
 
     let inputs: Vec<jack::Port<jack::AudioIn>> = plugin
@@ -65,12 +66,12 @@ fn main() {
 
     let process_handler =
         jack::ClosureProcessHandler::new(move |_: &jack::Client, ps: &jack::ProcessScope| {
-            for (port, buffer) in events_in.iter_mut() {
+            for (port, buffer) in &mut events_in.iter_mut() {
                 buffer.clear();
                 for midi in port.iter(ps) {
                     const MAX_SUPPORTED_MIDI_SIZE: usize = 32;
                     match buffer.push_midi_event::<MAX_SUPPORTED_MIDI_SIZE>(
-                        midi.time as i64,
+                        i64::from(midi.time),
                         midi_urid,
                         midi.bytes,
                     ) {
@@ -79,7 +80,7 @@ fn main() {
                             // This should be a warning, but we don't want to
                             // hurt performance for something that may not be an
                             // issue that the user can fix.
-                            debug!("Failed to push midi event: {:?}", e)
+                            debug!("Failed to push midi event: {:?}", e);
                         }
                     }
                 }
@@ -100,7 +101,7 @@ fn main() {
                     return jack::Control::Quit;
                 }
             }
-            for (_, _) in events_out.iter_mut() {
+            for (_, _) in &mut events_out.iter_mut() {
                 unimplemented!("events cannot yet be output to midi");
             }
             jack::Control::Continue
