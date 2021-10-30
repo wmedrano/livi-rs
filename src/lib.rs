@@ -1,3 +1,4 @@
+use crate::error::Run as RunError;
 use crate::event::LV2AtomSequence;
 use log::{error, info, warn};
 use lv2_raw::LV2Feature;
@@ -535,7 +536,10 @@ impl Instance {
         AtomSequenceOutput: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
     {
         if ports.control_input.len() != self.control_inputs.len() {
-            return Err(RunError::ControlInputSizeMismatch);
+            return Err(RunError::ControlInputSizeMismatch {
+                expected: self.control_inputs.len(),
+                actual: ports.control_input.len(),
+            });
         }
         for (data, index) in ports.control_input.zip(self.control_inputs.iter()) {
             self.inner
@@ -543,13 +547,19 @@ impl Instance {
                 .connect_port_ptr(index.0, data as *const f32 as *mut f32);
         }
         if ports.control_output.len() != self.control_outputs.len() {
-            return Err(RunError::ControlOutputSizeMismatch);
+            return Err(RunError::ControlOutputSizeMismatch {
+                expected: self.control_outputs.len(),
+                actual: ports.control_output.len(),
+            });
         }
         for (data, index) in ports.control_output.zip(self.control_outputs.iter()) {
             self.inner.instance_mut().connect_port_ptr(index.0, data);
         }
         if ports.audio_input.len() != self.audio_inputs.len() {
-            return Err(RunError::AudioInputSizeMismatch);
+            return Err(RunError::AudioInputSizeMismatch {
+                expected: self.audio_inputs.len(),
+                actual: ports.audio_input.len(),
+            });
         }
         for (data, index) in ports.audio_input.zip(self.audio_inputs.iter()) {
             self.inner
@@ -557,7 +567,10 @@ impl Instance {
                 .connect_port_ptr(index.0, data.as_ptr() as *mut f32);
         }
         if ports.audio_output.len() != self.audio_outputs.len() {
-            return Err(RunError::AudioOutputSizeMismatch);
+            return Err(RunError::AudioOutputSizeMismatch {
+                expected: self.audio_outputs.len(),
+                actual: ports.audio_output.len(),
+            });
         }
         for (data, index) in ports.audio_output.zip(self.audio_outputs.iter()) {
             self.inner
@@ -565,7 +578,10 @@ impl Instance {
                 .connect_port_ptr(index.0, data.as_mut_ptr());
         }
         if ports.atom_sequence_input.len() != self.atom_sequence_inputs.len() {
-            return Err(RunError::AtomSequenceSizeMismatch);
+            return Err(RunError::AtomSequenceInputSizeMismatch {
+                expected: self.atom_sequence_inputs.len(),
+                actual: ports.atom_sequence_input.len(),
+            });
         }
         for (data, index) in ports
             .atom_sequence_input
@@ -574,6 +590,12 @@ impl Instance {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_ptr() as *mut lv2_raw::LV2AtomSequence);
+        }
+        if ports.atom_sequence_output.len() != self.atom_sequence_outputs.len() {
+            return Err(RunError::AtomSequenceOutputSizeMismatch {
+                expected: self.atom_sequence_outputs.len(),
+                actual: ports.atom_sequence_output.len(),
+            });
         }
         for (data, index) in ports
             .atom_sequence_output
@@ -586,28 +608,6 @@ impl Instance {
         self.inner.run(ports.frames);
         Ok(())
     }
-}
-
-/// An error associated with running a plugin.
-#[derive(Debug)]
-pub enum RunError {
-    /// The number of control inputs was different than what the plugin
-    /// required.
-    ControlInputSizeMismatch,
-
-    /// The number of control outputs was different than what the plugin
-    /// required.
-    ControlOutputSizeMismatch,
-
-    /// The number of audio inputs was different than what the plugin required.
-    AudioInputSizeMismatch,
-
-    /// The number of audio outputs was different than what the plugin required.
-    AudioOutputSizeMismatch,
-
-    /// The number of atom sequence inputs was different than what the plugin
-    /// required.
-    AtomSequenceSizeMismatch,
 }
 
 #[cfg(test)]

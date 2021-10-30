@@ -148,6 +148,10 @@ impl LV2AtomSequence {
     }
 
     /// Iterate over all events (and event data) in the sequence.
+    ///
+    /// # Panics
+    /// Panics if the underlying sequence is not well formed.
+    #[must_use]
     pub fn iter(&self) -> LV2AtomSequenceIter<'_> {
         let body = unsafe { &self.as_ptr().as_ref().unwrap().body };
         let size = unsafe { self.as_ptr().as_ref().unwrap().atom.size };
