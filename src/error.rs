@@ -30,4 +30,7 @@ pub enum Event {
         max_supported_size: usize,
         actual_size: usize,
     },
+
+    /// The size of the sequence has exceeded its capacity.
+    SequenceCapacityExceeded,
 }
