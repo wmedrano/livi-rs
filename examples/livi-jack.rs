@@ -28,11 +28,8 @@ fn main() {
         .find(|p| p.uri() == config.plugin_uri)
         .unwrap();
 
-    let (client, status) = jack::Client::new(
-        &format!("livi-jack-{}", plugin.name()),
-        jack::ClientOptions::NO_START_SERVER,
-    )
-    .unwrap();
+    let (client, status) =
+        jack::Client::new(&plugin.name(), jack::ClientOptions::NO_START_SERVER).unwrap();
     info!("Created jack client {:?} with status {:?}.", client, status);
 
     let midi_urid = livi.midi_urid();
@@ -41,53 +38,59 @@ fn main() {
     let mut plugin_instance = unsafe { plugin.instantiate(client.sample_rate() as f64).unwrap() };
 
     let inputs: Vec<jack::Port<jack::AudioIn>> = plugin
-        .ports()
-        .filter(|p| p.port_type == livi::PortType::AudioInput)
+        .ports_with_type(livi::PortType::AudioInput)
         .inspect(|p| info!("Initializing audio input {}.", p.name))
         .map(|p| client.register_port(&p.name, jack::AudioIn).unwrap())
         .collect();
     let mut outputs: Vec<jack::Port<jack::AudioOut>> = plugin
-        .ports()
-        .filter(|p| p.port_type == livi::PortType::AudioOutput)
+        .ports_with_type(livi::PortType::AudioOutput)
         .inspect(|p| info!("Initializing audio output {}.", p.name))
         .map(|p| client.register_port(&p.name, jack::AudioOut).unwrap())
         .collect();
     let controls: Vec<f32> = plugin
-        .ports()
-        .filter(|p| p.port_type == livi::PortType::ControlInput)
+        .ports_with_type(livi::PortType::ControlInput)
         .inspect(|p| info!("Using {} = {}", p.name, p.default_value))
         .map(|p| p.default_value)
         .collect();
-    let midi = plugin
-        .ports()
-        .find(|p| p.port_type == livi::PortType::EventsInput)
-        .map(|_| client.register_port("midi", jack::MidiIn).unwrap());
-    let mut events = midi
-        .as_ref()
-        .map(|_| livi::event::LV2AtomSequence::new(4096));
+    let mut events_in = plugin
+        .ports_with_type(livi::PortType::EventsInput)
+        .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
+        .map(|p| (p, livi::event::LV2AtomSequence::new(4096)))
+        .collect::<Vec<_>>();
+    let mut events_out = plugin
+        .ports_with_type(livi::PortType::EventsOutput)
+        .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
+        .map(|p| (p, livi::event::LV2AtomSequence::new(4096)))
+        .collect::<Vec<_>>();
 
     let process_handler =
         jack::ClosureProcessHandler::new(move |_: &jack::Client, ps: &jack::ProcessScope| {
-            if let (Some(midi), Some(events)) = (midi.as_ref(), events.as_mut()) {
-                events.clear();
-                for midi in midi.iter(ps) {
-                    events.append_midi_event(midi.time as i64, midi_urid, midi.bytes);
+            for (port, buffer) in events_in.iter_mut() {
+                buffer.clear();
+                for midi in port.iter(ps) {
+                    buffer.append_midi_event(midi.time as i64, midi_urid, midi.bytes);
                 }
             }
+
             let ports = livi::PortValues {
                 frames: ps.n_frames() as usize,
                 control_input: controls.iter(),
                 audio_input: inputs.iter().map(|p| p.as_slice(ps)),
                 audio_output: outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
-                atom_sequence: events.as_ref(),
+                atom_sequence_input: events_in.iter().map(|(_, e)| e),
+                atom_sequence_output: events_out.iter_mut().map(|(_, e)| e),
             };
             match unsafe { plugin_instance.run(ports) } {
-                Ok(()) => jack::Control::Continue,
+                Ok(()) => (),
                 Err(e) => {
                     error!("Error: {:?}", e);
-                    jack::Control::Quit
+                    return jack::Control::Quit;
                 }
             }
+            for (_, _) in events_out.iter_mut() {
+                unimplemented!("events cannot yet be output to midi");
+            }
+            jack::Control::Continue
         });
 
     let active_client = client.activate_async((), process_handler).unwrap();

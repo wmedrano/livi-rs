@@ -1,4 +1,5 @@
 use crate::event::LV2AtomSequence;
+use error::{InitializeBlockLengthError, InstantiateError};
 use log::{error, info, warn};
 use lv2_raw::LV2Feature;
 use std::{
@@ -7,6 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub mod error;
 pub mod event;
 mod features;
 
@@ -47,10 +49,6 @@ impl Features {
         }
     }
 
-    fn all_initialized(&self) -> bool {
-        self.min_and_max_block_length.is_some()
-    }
-
     fn initialize_block_length(
         &mut self,
         min_block_length: i32,
@@ -79,6 +77,7 @@ impl Features {
         Ok(())
     }
 
+    /// Get the URIs for all supported features.
     fn supported_features(&self) -> HashSet<String> {
         self.iter_features()
             .map(|f| {
@@ -89,6 +88,7 @@ impl Features {
             .collect()
     }
 
+    /// Iterate over all supported features.
     fn iter_features(&self) -> impl Iterator<Item = &'_ LV2Feature> {
         std::iter::once(self.urid_map.as_urid_map_feature())
             .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
@@ -104,7 +104,9 @@ pub struct World {
 }
 
 impl World {
-    /// Create a new world.
+    /// Create a new world that includes all plugins that are found and are
+    /// supported.  Plugins that are not supported will be listed with a `warn!`
+    /// message.
     pub fn new() -> World {
         let world = lilv::World::with_load_all();
         let resources = Arc::new(Resources::new(&world));
@@ -201,8 +203,20 @@ impl World {
         })
     }
 
-    /// Initialize the block length. This must be called before any plugins are
-    /// instantiated and may only be called once.
+    /// Return the plugin given a URI or `None` if it does not exist.
+    pub fn plugin_by_uri(&self, uri: &str) -> Option<Plugin> {
+        self.plugins
+            .iter()
+            .find(|p| p.uri().as_str() == Some(uri))
+            .map(|p| Plugin {
+                inner: p.clone(),
+                resources: self.resources.clone(),
+            })
+    }
+
+    /// Initialize the block length. This is the minimum and maximum number of
+    /// samples that are processed per `run` method. This must be called before
+    /// any plugins are instantiated and may only be called once.
     pub fn initialize_block_length(
         &mut self,
         min_block_length: usize,
@@ -222,34 +236,10 @@ impl World {
     }
 }
 
-/// An error that occurs when initializing the block length LV2 feature.
-#[derive(Debug)]
-pub enum InitializeBlockLengthError {
-    /// The minimum block length is too large.
-    MinBlockLengthTooLarge,
-    /// The maximum block length is too large.
-    MaxBlockLengthTooLarge,
-    /// The block length has already been initialized. It cannot be initialized
-    /// again since existing plugins may have already been instantiated.
-    BlockLengthAlreadyInitialized,
-}
-
 impl Default for World {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// An error with plugin instantiation.
-#[derive(Debug)]
-pub enum InstantiateError {
-    /// An error ocurred, but it is not known why.
-    UnknownError,
-    /// The plugin was found to have too many atom ports. Only up to 1 atom port
-    /// is supported.
-    TooManyEventsInputs,
-    /// `World::initialize_block_length` has not yet been called.
-    BlockLengthNotInitialized,
 }
 
 /// A plugin that can be used to instantiate plugin instances.
@@ -276,7 +266,7 @@ impl Plugin {
     /// Running plugin code is unsafe.
     pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
         let features = self.resources.features.lock().unwrap();
-        if !features.all_initialized() {
+        if features.min_and_max_block_length.is_none() {
             return Err(InstantiateError::BlockLengthNotInitialized);
         }
         let instance = self
@@ -286,19 +276,16 @@ impl Plugin {
         let mut control_inputs = Vec::new();
         let mut audio_inputs = Vec::new();
         let mut audio_outputs = Vec::new();
-        let mut events_input = None;
+        let mut atom_sequence_inputs = Vec::new();
+        let mut atom_sequence_outputs = Vec::new();
         for port in self.ports() {
             match port.port_type {
                 PortType::ControlInput => control_inputs.push(port.index),
-                PortType::ControlOutput => (),
+                PortType::ControlOutput => unimplemented!("control output not yet supported"),
                 PortType::AudioInput => audio_inputs.push(port.index),
                 PortType::AudioOutput => audio_outputs.push(port.index),
-                PortType::EventsInput => {
-                    if events_input.is_some() {
-                        return Err(InstantiateError::TooManyEventsInputs);
-                    }
-                    events_input = Some(port.index);
-                }
+                PortType::EventsInput => atom_sequence_inputs.push(port.index),
+                PortType::EventsOutput => atom_sequence_outputs.push(port.index),
             }
         }
         Ok(Instance {
@@ -306,7 +293,8 @@ impl Plugin {
             control_inputs,
             audio_inputs,
             audio_outputs,
-            events_input,
+            atom_sequence_inputs,
+            atom_sequence_outputs,
         })
     }
 
@@ -331,14 +319,11 @@ impl Plugin {
             };
             let port_type = match (io_type, data_type) {
                 (IOType::Input, DataType::Control) => PortType::ControlInput,
-                (IOType::Input, DataType::Audio) => PortType::AudioInput,
                 (IOType::Output, DataType::Control) => PortType::ControlOutput,
+                (IOType::Input, DataType::Audio) => PortType::AudioInput,
                 (IOType::Output, DataType::Audio) => PortType::AudioOutput,
                 (IOType::Input, DataType::AtomSequence) => PortType::EventsInput,
-                (iotype, data_type) => panic!(
-                    "Port {:?} has unsupported configuration. It is an {:?} {:?} port.",
-                    p, iotype, data_type
-                ),
+                (IOType::Output, DataType::AtomSequence) => PortType::EventsOutput,
             };
             Port {
                 port_type,
@@ -355,6 +340,11 @@ impl Plugin {
                 index: PortIndex(p.index()),
             }
         })
+    }
+
+    /// Return all ports with the given type.
+    pub fn ports_with_type(&self, port_type: PortType) -> impl '_ + Iterator<Item = Port> {
+        self.ports().filter(move |p| p.port_type == port_type)
     }
 }
 
@@ -391,8 +381,12 @@ pub enum PortType {
     AudioInput,
     /// And `&mut [f32]`.
     AudioOutput,
-    /// LV2 atom sequence input. This is used to handle midi, among other things.
+    /// LV2 atom sequence input. This is used to handle midi, among other
+    /// things.
     EventsInput,
+    /// LV2 atom sequence output. This is used to output midi, among other
+    /// things.
+    EventsOutput,
 }
 
 /// A port represents a connection (either input or output) to a plugin.
@@ -407,11 +401,19 @@ pub struct Port {
 }
 
 /// All the inputs and outputs for an instance.
-pub struct PortValues<'a, ControlInput, AudioInput, AudioOutput>
-where
+pub struct PortValues<
+    'a,
+    ControlInput,
+    AudioInput,
+    AudioOutput,
+    AtomSequenceInput,
+    AtomSequenceOutput,
+> where
     ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
     AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+    AtomSequenceInput: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+    AtomSequenceOutput: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
 {
     /// The number of audio samples that will be processed.
     pub frames: usize,
@@ -426,7 +428,10 @@ where
     pub audio_output: AudioOutput,
 
     /// The events input.
-    pub atom_sequence: Option<&'a LV2AtomSequence>,
+    pub atom_sequence_input: AtomSequenceInput,
+
+    /// The events output.
+    pub atom_sequence_output: AtomSequenceOutput,
 }
 
 /// The index of the port within a plugin.
@@ -438,20 +443,37 @@ pub struct Instance {
     control_inputs: Vec<PortIndex>,
     audio_inputs: Vec<PortIndex>,
     audio_outputs: Vec<PortIndex>,
-    events_input: Option<PortIndex>,
+    atom_sequence_inputs: Vec<PortIndex>,
+    atom_sequence_outputs: Vec<PortIndex>,
 }
 
 impl Instance {
     /// # Safety
     /// Running plugin code is unsafe.
-    pub unsafe fn run<'a, ControlInput, AudioInput, AudioOutput>(
+    pub unsafe fn run<
+        'a,
+        ControlInput,
+        AudioInput,
+        AudioOutput,
+        AtomSequenceInput,
+        AtomSequenceOutput,
+    >(
         &mut self,
-        ports: PortValues<'a, ControlInput, AudioInput, AudioOutput>,
+        ports: PortValues<
+            'a,
+            ControlInput,
+            AudioInput,
+            AudioOutput,
+            AtomSequenceInput,
+            AtomSequenceOutput,
+        >,
     ) -> Result<(), RunError>
     where
         ControlInput: ExactSizeIterator + Iterator<Item = &'a f32>,
         AudioInput: ExactSizeIterator + Iterator<Item = &'a [f32]>,
         AudioOutput: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+        AtomSequenceInput: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+        AtomSequenceOutput: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
     {
         if ports.control_input.len() != self.control_inputs.len() {
             return Err(RunError::ControlInputSizeMismatch);
@@ -477,13 +499,24 @@ impl Instance {
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_mut_ptr());
         }
-        if ports.atom_sequence.iter().count() != self.events_input.iter().count() {
+        if ports.atom_sequence_input.len() != self.atom_sequence_inputs.len() {
             return Err(RunError::AtomSequenceSizeMismatch);
         }
-        if let (Some(index), Some(sequence)) = (self.events_input.as_ref(), ports.atom_sequence) {
+        for (data, index) in ports
+            .atom_sequence_input
+            .zip(self.atom_sequence_inputs.iter())
+        {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, sequence.as_ptr() as *mut LV2AtomSequence);
+                .connect_port_ptr(index.0, data.as_ptr() as *mut LV2AtomSequence);
+        }
+        for (data, index) in ports
+            .atom_sequence_output
+            .zip(self.atom_sequence_outputs.iter())
+        {
+            self.inner
+                .instance_mut()
+                .connect_port_ptr(index.0, data.as_mut_ptr());
         }
         self.inner.run(ports.frames);
         Ok(())
