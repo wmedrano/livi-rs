@@ -466,7 +466,7 @@ pub struct PortConnections<
     AtomSequenceOutput: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
 {
     /// The number of audio samples that will be processed.
-    pub frames: usize,
+    pub sample_count: usize,
 
     /// The control inputs.
     pub control_input: ControlInput,
@@ -605,7 +605,7 @@ impl Instance {
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_mut_ptr());
         }
-        self.inner.run(ports.frames);
+        self.inner.run(ports.sample_count);
         Ok(())
     }
 }

@@ -114,7 +114,7 @@ impl jack::ProcessHandler for Processor {
         }
 
         let ports = livi::PortConnections {
-            frames: ps.n_frames() as usize,
+            sample_count: ps.n_frames() as usize,
             control_input: self.control_inputs.iter(),
             control_output: self.control_outputs.iter_mut(),
             audio_input: self.audio_inputs.iter().map(|p| p.as_slice(ps)),
