@@ -10,6 +10,17 @@ A library for hosting LV2 plugins.
 
 Note: This is a work in progress and has not yet been full tested.
 
+## Supported LV2 Features
+
+LV2 has a simple core interface but is accompanied by extensions that can add
+lots of functionality. This library aims to support as many features as possible
+out of the box.
+
+- [`http://lv2plug.in/ns/ext/urid#map`](http://lv2plug.in/ns/ext/urid#map)
+- [`http://lv2plug.in/ns/ext/urid#unmap`](http://lv2plug.in/ns/ext/urid#unmap)
+- [`http://lv2plug.in/ns/ext/options#options`](http://lv2plug.in/ns/ext/options#options])
+- [`http://lv2plug.in/ns/ext/buf-size#boundedBlockLength`](http://lv2plug.in/ns/ext/buf-size#boundedBlockLength)
+
 ## Quickstart
 
 Below is an example on how to run the mda EPiano plugin.
@@ -64,13 +75,8 @@ let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
 unsafe { instance.run(ports).unwrap() };
 ```
 
-## Supported LV2 Features
+## Building, Testing, and Running
 
-LV2 has a simple core interface but is accompanied by extensions that can add
-lots of functionality. This library aims to support as many features as possible
-out of the box.
-
-- [`http://lv2plug.in/ns/ext/urid#map`](http://lv2plug.in/ns/ext/urid#map)
-- [`http://lv2plug.in/ns/ext/urid#unmap`](http://lv2plug.in/ns/ext/urid#unmap)
-- [`http://lv2plug.in/ns/ext/options#options`](http://lv2plug.in/ns/ext/options#options])
-- [`http://lv2plug.in/ns/ext/buf-size#boundedBlockLength`](http://lv2plug.in/ns/ext/buf-size#boundedBlockLength)
+- Build - `cargo build`
+- Test - `cargo test`, requires mda LV2 plugins.
+- Run livi-jack - `cargo run --example livi-jack --release -- --plugin-uri=http://drobilla.net/plugins/mda/EPiano`.
