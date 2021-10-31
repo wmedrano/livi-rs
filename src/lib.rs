@@ -29,7 +29,7 @@
 //!     .map(|p| p.default_value)
 //!     .collect();
 //! let mut outputs = [vec![0.0; MAX_BLOCK_SIZE], vec![0.0; MAX_BLOCK_SIZE]];
-//! let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
+//! let ports = livi::EmptyPortConnections::new(MAX_BLOCK_SIZE)
 //!     .with_atom_sequence_inputs(std::iter::once(&input))
 //!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
 //!     .with_control_inputs(params.iter());
@@ -911,5 +911,27 @@ mod tests {
                 .with_control_inputs(params.iter());
             unsafe { instance.run(ports).unwrap() };
         }
+    }
+
+    #[test]
+    fn test_supported_features() {
+        let want: HashSet<String> = [
+            "http://lv2plug.in/ns/ext/urid#map",
+            "http://lv2plug.in/ns/ext/urid#unmap",
+            "http://lv2plug.in/ns/ext/options#options",
+            "http://lv2plug.in/ns/ext/buf-size#boundedBlockLength",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            want,
+            World::new()
+                .resources
+                .features
+                .lock()
+                .unwrap()
+                .supported_features()
+        );
     }
 }
