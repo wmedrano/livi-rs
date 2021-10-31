@@ -35,8 +35,8 @@
 //!     .with_control_inputs(params.iter());
 //! unsafe { instance.run(ports).unwrap() };
 //! ```
-use crate::error::Run as RunError;
 use crate::event::LV2AtomSequence;
+use error::{InitializeBlockLengthError, InstantiateError, RunError};
 use log::{error, info, warn};
 use lv2_raw::LV2Feature;
 use std::convert::TryFrom;
@@ -93,23 +93,21 @@ impl Features {
         &mut self,
         min_block_length: usize,
         max_block_length: usize,
-    ) -> Result<(), error::InitializeBlockLength> {
+    ) -> Result<(), InitializeBlockLengthError> {
         if let Some((min_block_length, max_block_length)) = self.min_and_max_block_length {
-            return Err(
-                error::InitializeBlockLength::BlockLengthAlreadyInitialized {
-                    min_block_length,
-                    max_block_length,
-                },
-            );
+            return Err(InitializeBlockLengthError::BlockLengthAlreadyInitialized {
+                min_block_length,
+                max_block_length,
+            });
         }
         let min = i32::try_from(min_block_length).map_err(|_| {
-            error::InitializeBlockLength::MinBlockLengthTooLarge {
+            InitializeBlockLengthError::MinBlockLengthTooLarge {
                 max_supported: i32::MAX as usize,
                 actual: min_block_length,
             }
         })?;
         let max = i32::try_from(max_block_length).map_err(|_| {
-            error::InitializeBlockLength::MaxBlockLengthTooLarge {
+            InitializeBlockLengthError::MaxBlockLengthTooLarge {
                 max_supported: i32::MAX as usize,
                 actual: max_block_length,
             }
@@ -298,7 +296,7 @@ impl World {
         &mut self,
         min_block_length: usize,
         max_block_length: usize,
-    ) -> Result<(), error::InitializeBlockLength> {
+    ) -> Result<(), InitializeBlockLengthError> {
         self.resources
             .features
             .lock()
@@ -343,15 +341,15 @@ impl Plugin {
     ///
     /// # Panics
     /// Panics if the world resource mutex could not be locked.
-    pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, error::Instantiate> {
+    pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
         let features = self.resources.features.lock().unwrap();
         if features.min_and_max_block_length.is_none() {
-            return Err(error::Instantiate::BlockLengthNotInitialized);
+            return Err(InstantiateError::BlockLengthNotInitialized);
         }
         let instance = self
             .inner
             .instantiate(sample_rate, features.iter_features())
-            .ok_or(error::Instantiate::UnknownError)?;
+            .ok_or(InstantiateError::UnknownError)?;
         let mut control_inputs = Vec::new();
         let mut control_outputs = Vec::new();
         let mut audio_inputs = Vec::new();

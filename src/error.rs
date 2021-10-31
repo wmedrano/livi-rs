@@ -1,6 +1,6 @@
 /// An error that occurs when initializing the block length LV2 feature.
 #[derive(Copy, Clone, Debug)]
-pub enum InitializeBlockLength {
+pub enum InitializeBlockLengthError {
     /// The minimum block length is too large.
     MinBlockLengthTooLarge { max_supported: usize, actual: usize },
     /// The maximum block length is too large.
@@ -15,7 +15,7 @@ pub enum InitializeBlockLength {
 
 /// An error with plugin instantiation.
 #[derive(Copy, Clone, Debug)]
-pub enum Instantiate {
+pub enum InstantiateError {
     /// An error ocurred, but it is not known why.
     UnknownError,
     /// `World::initialize_block_length` has not yet been called.
@@ -24,7 +24,7 @@ pub enum Instantiate {
 
 /// An error that occurs when dealing with atom events.
 #[derive(Copy, Clone, Debug)]
-pub enum Event {
+pub enum EventError {
     /// The size of the data is too large than what is supported for the event.
     DataTooLarge {
         max_supported_size: usize,
@@ -37,7 +37,7 @@ pub enum Event {
 
 /// An error associated with running a plugin.
 #[derive(Debug)]
-pub enum Run {
+pub enum RunError {
     /// The number of control inputs was different than what the plugin
     /// required.
     ControlInputsSizeMismatch { expected: usize, actual: usize },

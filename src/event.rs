@@ -25,10 +25,10 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
         time_in_frames: i64,
         my_type: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::Event> {
+    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::EventError> {
         let mut buffer = [0; MAX_SIZE];
         if data.len() > buffer.len() {
-            return Err(error::Event::DataTooLarge {
+            return Err(error::EventError::DataTooLarge {
                 max_supported_size: MAX_SIZE,
                 actual_size: data.len(),
             });
@@ -57,7 +57,7 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
         time_in_frames: i64,
         midi_uri: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::Event> {
+    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::EventError> {
         LV2AtomEventBuilder::<MAX_SIZE>::new(time_in_frames, midi_uri, data)
     }
 
@@ -99,7 +99,7 @@ impl LV2AtomSequence {
     pub fn push_event<const MAX_SIZE: usize>(
         &mut self,
         event: &LV2AtomEventBuilder<MAX_SIZE>,
-    ) -> Result<(), error::Event> {
+    ) -> Result<(), error::EventError> {
         let new_event_ptr = unsafe {
             lv2_raw::atomutils::lv2_atom_sequence_append_event(
                 self.as_mut_ptr(),
@@ -108,7 +108,7 @@ impl LV2AtomSequence {
             )
         };
         if new_event_ptr.is_null() {
-            Err(error::Event::SequenceCapacityExceeded)
+            Err(error::EventError::SequenceCapacityExceeded)
         } else {
             Ok(())
         }
@@ -124,7 +124,7 @@ impl LV2AtomSequence {
         time_in_frames: i64,
         midi_uri: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<(), error::Event> {
+    ) -> Result<(), error::EventError> {
         let event = LV2AtomEventBuilder::<MAX_SIZE>::new_midi(time_in_frames, midi_uri, data)?;
         self.push_event(&event)
     }
