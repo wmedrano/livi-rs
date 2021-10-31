@@ -10,8 +10,7 @@ use std::marker::PhantomData;
 pub struct LV2AtomEventBuilder<const MAX_SIZE: usize> {
     /// The atom event.
     event: lv2_raw::LV2AtomEvent,
-    /// The data for the atom event. The data is a tuple of the atom type and
-    /// the atom data but it size is restricted to 16 bytes for the moment.
+    /// The data for the atom event.
     _data: [u8; MAX_SIZE],
 }
 
