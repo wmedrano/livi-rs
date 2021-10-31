@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_sequence_push_event_is_stable() {
-        let event = LV2AtomEventBuilder::<1>::new_full(0, 0, [10]);
+        let event = LV2AtomEventBuilder::new_full(0, 0, [10]);
         for capacity in 0..10000 {
             let mut sequence = LV2AtomSequence::new(capacity);
             while sequence.push_event(&event).is_ok() {}

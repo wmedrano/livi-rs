@@ -56,6 +56,8 @@ struct Processor {
     control_outputs: Vec<f32>,
     event_inputs: Vec<(jack::Port<jack::MidiIn>, LV2AtomSequence)>,
     event_outputs: Vec<(jack::Port<jack::MidiOut>, LV2AtomSequence)>,
+    cv_inputs: Vec<jack::Port<jack::AudioIn>>,
+    cv_outputs: Vec<jack::Port<jack::AudioOut>>,
 }
 
 impl Processor {
@@ -94,6 +96,24 @@ impl Processor {
             .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
             .map(|p| (p, LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
+        let cv_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
+            .ports_with_type(livi::PortType::CVInput)
+            .inspect(|p| info!("Initializing cv input {}.", p.name))
+            .map(|p| {
+                client
+                    .register_port(&format!("CV: {}", p.name), jack::AudioIn)
+                    .unwrap()
+            })
+            .collect();
+        let cv_outputs: Vec<jack::Port<jack::AudioOut>> = plugin
+            .ports_with_type(livi::PortType::CVOutput)
+            .inspect(|p| info!("Initializing cv output {}.", p.name))
+            .map(|p| {
+                client
+                    .register_port(&format!("CV: {}", p.name), jack::AudioOut)
+                    .unwrap()
+            })
+            .collect();
         Processor {
             plugin: plugin_instance,
             midi_urid: world.midi_urid(),
@@ -103,6 +123,8 @@ impl Processor {
             control_outputs,
             event_inputs,
             event_outputs,
+            cv_inputs,
+            cv_outputs,
         }
     }
 }
@@ -115,12 +137,14 @@ impl jack::ProcessHandler for Processor {
 
         let ports = livi::PortConnections {
             sample_count: ps.n_frames() as usize,
-            control_input: self.control_inputs.iter(),
-            control_output: self.control_outputs.iter_mut(),
-            audio_input: self.audio_inputs.iter().map(|p| p.as_slice(ps)),
-            audio_output: self.audio_outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
-            atom_sequence_input: self.event_inputs.iter().map(|(_, e)| e),
-            atom_sequence_output: self.event_outputs.iter_mut().map(|(_, e)| e),
+            control_inputs: self.control_inputs.iter(),
+            control_outputs: self.control_outputs.iter_mut(),
+            audio_inputs: self.audio_inputs.iter().map(|p| p.as_slice(ps)),
+            audio_outputs: self.audio_outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
+            atom_sequence_inputs: self.event_inputs.iter().map(|(_, e)| e),
+            atom_sequence_outputs: self.event_outputs.iter_mut().map(|(_, e)| e),
+            cv_inputs: self.cv_inputs.iter().map(|p| p.as_slice(ps)),
+            cv_outputs: self.cv_outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
         };
         match unsafe { self.plugin.run(ports) } {
             Ok(()) => (),

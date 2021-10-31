@@ -36,15 +36,10 @@
 //! unsafe { instance.run(ports).unwrap() };
 //! ```
 use crate::event::LV2AtomSequence;
+use crate::features::Features;
 use error::{InitializeBlockLengthError, InstantiateError, RunError};
-use log::{error, info, warn};
-use lv2_raw::LV2Feature;
-use std::convert::TryFrom;
-use std::{
-    collections::HashSet,
-    ffi::CStr,
-    sync::{Arc, Mutex},
-};
+use log::{debug, error, info, warn};
+use std::sync::{Arc, Mutex};
 
 /// Contains all the error types for the `livi` crate.
 pub mod error;
@@ -58,6 +53,7 @@ struct Resources {
     control_port_uri: lilv::node::Node,
     audio_port_uri: lilv::node::Node,
     atom_port_uri: lilv::node::Node,
+    cv_port_uri: lilv::node::Node,
     features: Mutex<Features>,
 }
 
@@ -69,86 +65,9 @@ impl Resources {
             control_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#ControlPort"),
             audio_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#AudioPort"),
             atom_port_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#AtomPort"),
+            cv_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#CVPort"),
             features: Mutex::new(Features::new()),
         }
-    }
-}
-
-struct Features {
-    urid_map: features::urid_map::UridMap,
-    options: features::options::Options,
-    min_and_max_block_length: Option<(usize, usize)>,
-}
-
-impl Features {
-    fn new() -> Features {
-        Features {
-            urid_map: features::urid_map::UridMap::new(),
-            options: features::options::Options::new(),
-            min_and_max_block_length: None,
-        }
-    }
-
-    fn initialize_block_length(
-        &mut self,
-        min_block_length: usize,
-        max_block_length: usize,
-    ) -> Result<(), InitializeBlockLengthError> {
-        if let Some((min_block_length, max_block_length)) = self.min_and_max_block_length {
-            return Err(InitializeBlockLengthError::BlockLengthAlreadyInitialized {
-                min_block_length,
-                max_block_length,
-            });
-        }
-        let min = i32::try_from(min_block_length).map_err(|_| {
-            InitializeBlockLengthError::MinBlockLengthTooLarge {
-                max_supported: i32::MAX as usize,
-                actual: min_block_length,
-            }
-        })?;
-        let max = i32::try_from(max_block_length).map_err(|_| {
-            InitializeBlockLengthError::MaxBlockLengthTooLarge {
-                max_supported: i32::MAX as usize,
-                actual: max_block_length,
-            }
-        })?;
-        self.options.set_int_option(
-            &self.urid_map,
-            self.urid_map.map(
-                CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#minBlockLength\0")
-                    .unwrap(),
-            ),
-            min,
-        );
-        self.options.set_int_option(
-            &self.urid_map,
-            self.urid_map.map(
-                CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#maxBlockLength\0")
-                    .unwrap(),
-            ),
-            max,
-        );
-        self.min_and_max_block_length = Some((min_block_length, max_block_length));
-        Ok(())
-    }
-
-    /// Get the URIs for all supported features.
-    fn supported_features(&self) -> HashSet<String> {
-        self.iter_features()
-            .map(|f| {
-                unsafe { std::ffi::CStr::from_ptr(f.uri) }
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect()
-    }
-
-    /// Iterate over all supported features.
-    fn iter_features(&self) -> impl Iterator<Item = &'_ LV2Feature> {
-        std::iter::once(self.urid_map.as_urid_map_feature())
-            .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
-            .chain(std::iter::once(self.options.as_feature()))
-            .chain(std::iter::once(&features::BOUNDED_BLOCK_LENGTH))
     }
 }
 
@@ -167,6 +86,16 @@ impl World {
     /// Panics if the world resources mutex could not be locked.
     #[must_use]
     pub fn new() -> World {
+        World::with_plugin_predicate(|_| true)
+    }
+
+    /// Creates a new world that includes all plugins that are found and return
+    /// `true` for `predicate.
+    #[must_use]
+    pub fn with_plugin_predicate<P>(predicate: P) -> World
+    where
+        P: Fn(&Plugin) -> bool,
+    {
         let world = lilv::World::with_load_all();
         let resources = Arc::new(Resources::new(&world));
         let supported_features = resources.features.lock().unwrap().supported_features();
@@ -210,6 +139,7 @@ impl World {
                             && class != resources.audio_port_uri
                             && class != resources.control_port_uri
                             && class != resources.atom_port_uri
+                            && class != resources.cv_port_uri
                         {
                             error!("Port class {:?} is not supported.", class);
                             return false;
@@ -225,7 +155,7 @@ impl World {
                         );
                         return false;
                     }
-                    if !port.is_a(&resources.audio_port_uri) && !port.is_a(&resources.control_port_uri) && !port.is_a(&resources.atom_port_uri) {
+                    if !port.is_a(&resources.audio_port_uri) && !port.is_a(&resources.control_port_uri) && !port.is_a(&resources.atom_port_uri) && !port.is_a(&resources.cv_port_uri) {
                         error!(
                             "Port {:?}for plugin {} not a recognized data type. Supported types are Audio and Control", port, p.uri().as_str().unwrap_or("BAD_URI")
                         );
@@ -233,6 +163,13 @@ impl World {
                     }
                 }
                 true
+            })
+            .filter(|p| {
+                let keep = predicate(&Plugin{ inner: p.clone(), resources: resources.clone()});
+                if !keep {
+                    debug!("Ignoring plugin {} due to predicate.", p.uri().as_str().unwrap_or("BAD_URI"));
+                }
+                keep
             })
             .inspect(|p| info!("Found plugin {}: {}", p.name().as_str().unwrap_or("BAD_NAME"), p.uri().as_str().unwrap_or("BAD_URI")))
             .collect();
@@ -356,6 +293,8 @@ impl Plugin {
         let mut audio_outputs = Vec::new();
         let mut atom_sequence_inputs = Vec::new();
         let mut atom_sequence_outputs = Vec::new();
+        let mut cv_inputs = Vec::new();
+        let mut cv_outputs = Vec::new();
         for port in self.ports() {
             match port.port_type {
                 PortType::ControlInput => control_inputs.push(port.index),
@@ -364,6 +303,8 @@ impl Plugin {
                 PortType::AudioOutput => audio_outputs.push(port.index),
                 PortType::AtomSequenceInput => atom_sequence_inputs.push(port.index),
                 PortType::AtomSequenceOutput => atom_sequence_outputs.push(port.index),
+                PortType::CVInput => cv_inputs.push(port.index),
+                PortType::CVOutput => cv_outputs.push(port.index),
             }
         }
         Ok(Instance {
@@ -374,6 +315,8 @@ impl Plugin {
             audio_outputs,
             atom_sequence_inputs,
             atom_sequence_outputs,
+            cv_inputs,
+            cv_outputs,
         })
     }
 
@@ -393,6 +336,8 @@ impl Plugin {
                 DataType::Control
             } else if p.is_a(&self.resources.atom_port_uri) {
                 DataType::AtomSequence
+            } else if p.is_a(&self.resources.cv_port_uri) {
+                DataType::CV
             } else {
                 unreachable!("Port is not an audio, control, or atom sequence port.")
             };
@@ -403,6 +348,8 @@ impl Plugin {
                 (IOType::Output, DataType::Audio) => PortType::AudioOutput,
                 (IOType::Input, DataType::AtomSequence) => PortType::AtomSequenceInput,
                 (IOType::Output, DataType::AtomSequence) => PortType::AtomSequenceOutput,
+                (IOType::Input, DataType::CV) => PortType::CVInput,
+                (IOType::Output, DataType::CV) => PortType::CVOutput,
             };
             Port {
                 port_type,
@@ -443,10 +390,16 @@ enum IOType {
 enum DataType {
     /// A single f32.
     Control,
-    /// An `[f32]`.
+
+    /// An `[f32]` representing an audio signal.
     Audio,
+
     /// An LV2 atom sequence.
     AtomSequence,
+
+    /// An `[f32]`..
+    /// See http://lv2plug.in/ns/lv2core#CVPort.
+    CV,
 }
 
 /// The type of port.
@@ -454,18 +407,30 @@ enum DataType {
 pub enum PortType {
     /// A single `&f32`.
     ControlInput,
+
     /// A single `&mut f32`. This is not yet supported.
+    ///
     ControlOutput,
+
     /// An `&[f32]`.
     AudioInput,
+
     /// An `&mut [f32]`.
     AudioOutput,
+
     /// LV2 atom sequence input. This is used to handle midi, among other
     /// things.
     AtomSequenceInput,
+
     /// LV2 atom sequence output. This is used to output midi, among other
     /// things.
     AtomSequenceOutput,
+
+    /// Similar to `ControlInput`, but the type is `&[f32]`.
+    CVInput,
+
+    /// Similar to `ControlOutput`, but the type is `&mut [f32]`.
+    CVOutput,
 }
 
 /// A port represents a connection (either input or output) to a plugin.
@@ -492,6 +457,8 @@ pub type EmptyPortConnections = PortConnections<
     std::iter::Empty<&'static mut [f32]>,
     std::iter::Empty<&'static LV2AtomSequence>,
     std::iter::Empty<&'static mut LV2AtomSequence>,
+    std::iter::Empty<&'static [f32]>,
+    std::iter::Empty<&'static mut [f32]>,
 >;
 
 impl EmptyPortConnections {
@@ -499,12 +466,14 @@ impl EmptyPortConnections {
     pub fn new(sample_count: usize) -> EmptyPortConnections {
         EmptyPortConnections {
             sample_count,
-            control_input: std::iter::empty(),
-            control_output: std::iter::empty(),
-            audio_input: std::iter::empty(),
-            audio_output: std::iter::empty(),
-            atom_sequence_input: std::iter::empty(),
-            atom_sequence_output: std::iter::empty(),
+            control_inputs: std::iter::empty(),
+            control_outputs: std::iter::empty(),
+            audio_inputs: std::iter::empty(),
+            audio_outputs: std::iter::empty(),
+            atom_sequence_inputs: std::iter::empty(),
+            atom_sequence_outputs: std::iter::empty(),
+            cv_inputs: std::iter::empty(),
+            cv_outputs: std::iter::empty(),
         }
     }
 }
@@ -518,6 +487,8 @@ pub struct PortConnections<
     AudioOutputs,
     AtomSequenceInputs,
     AtomSequenceOutputs,
+    CVInputs,
+    CVOutputs,
 > where
     ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
     ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
@@ -525,27 +496,35 @@ pub struct PortConnections<
     AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
     AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+    CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
 {
     /// The number of audio samples that will be processed.
     pub sample_count: usize,
 
     /// The control inputs.
-    pub control_input: ControlInputs,
+    pub control_inputs: ControlInputs,
 
     /// The control outputs.
-    pub control_output: ControlOutputs,
+    pub control_outputs: ControlOutputs,
 
     /// The audio inputs.
-    pub audio_input: AudioInputs,
+    pub audio_inputs: AudioInputs,
 
     /// The audio outputs.
-    pub audio_output: AudioOutputs,
+    pub audio_outputs: AudioOutputs,
 
     /// The events input.
-    pub atom_sequence_input: AtomSequenceInputs,
+    pub atom_sequence_inputs: AtomSequenceInputs,
 
     /// The events output.
-    pub atom_sequence_output: AtomSequenceOutputs,
+    pub atom_sequence_outputs: AtomSequenceOutputs,
+
+    /// The CV inputs.
+    pub cv_inputs: CVInputs,
+
+    /// The CV outputs.
+    pub cv_outputs: CVOutputs,
 }
 
 impl<
@@ -556,6 +535,8 @@ impl<
         AudioOutputs,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
     PortConnections<
         'a,
@@ -565,6 +546,8 @@ impl<
         AudioOutputs,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
 where
     ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
@@ -573,6 +556,8 @@ where
     AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
     AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+    CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
 {
     /// Create an instance of `PortConnections` with the given control inputs.
     pub fn with_control_inputs<I>(
@@ -586,18 +571,22 @@ where
         AudioOutputs,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
     where
         I: ExactSizeIterator + Iterator<Item = &'a f32>,
     {
         PortConnections {
             sample_count: self.sample_count,
-            control_input: control_inputs,
-            control_output: self.control_output,
-            audio_input: self.audio_input,
-            audio_output: self.audio_output,
-            atom_sequence_input: self.atom_sequence_input,
-            atom_sequence_output: self.atom_sequence_output,
+            control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs: self.cv_outputs,
         }
     }
 
@@ -613,18 +602,22 @@ where
         AudioOutputs,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
     where
         I: ExactSizeIterator + Iterator<Item = &'a mut f32>,
     {
         PortConnections {
             sample_count: self.sample_count,
-            control_input: self.control_input,
-            control_output: control_outputs,
-            audio_input: self.audio_input,
-            audio_output: self.audio_output,
-            atom_sequence_input: self.atom_sequence_input,
-            atom_sequence_output: self.atom_sequence_output,
+            control_inputs: self.control_inputs,
+            control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs: self.cv_outputs,
         }
     }
 
@@ -640,18 +633,22 @@ where
         AudioOutputs,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
     where
         I: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     {
         PortConnections {
             sample_count: self.sample_count,
-            control_input: self.control_input,
-            control_output: self.control_output,
-            audio_input: audio_inputs,
-            audio_output: self.audio_output,
-            atom_sequence_input: self.atom_sequence_input,
-            atom_sequence_output: self.atom_sequence_output,
+            control_inputs: self.control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs: self.cv_outputs,
         }
     }
 
@@ -667,18 +664,22 @@ where
         I,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
     where
         I: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
         PortConnections {
             sample_count: self.sample_count,
-            control_input: self.control_input,
-            control_output: self.control_output,
-            audio_input: self.audio_input,
-            audio_output: audio_outputs,
-            atom_sequence_input: self.atom_sequence_input,
-            atom_sequence_output: self.atom_sequence_output,
+            control_inputs: self.control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs: self.cv_outputs,
         }
     }
 
@@ -694,18 +695,22 @@ where
         AudioOutputs,
         I,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >
     where
         I: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
     {
         PortConnections {
             sample_count: self.sample_count,
-            control_input: self.control_input,
-            control_output: self.control_output,
-            audio_input: self.audio_input,
-            audio_output: self.audio_output,
-            atom_sequence_input: atom_sequence_inputs,
-            atom_sequence_output: self.atom_sequence_output,
+            control_inputs: self.control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs: self.cv_outputs,
         }
     }
 
@@ -721,18 +726,84 @@ where
         AudioOutputs,
         AtomSequenceInputs,
         I,
+        CVInputs,
+        CVOutputs,
     >
     where
         I: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
     {
         PortConnections {
             sample_count: self.sample_count,
-            control_input: self.control_input,
-            control_output: self.control_output,
-            audio_input: self.audio_input,
-            audio_output: self.audio_output,
-            atom_sequence_input: self.atom_sequence_input,
-            atom_sequence_output: atom_sequence_outputs,
+            control_inputs: self.control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs: self.cv_outputs,
+        }
+    }
+
+    /// Create an instance of `PortConnections` with the given CV inputs.
+    pub fn with_cv_inputs<I>(
+        self,
+        cv_inputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+        I,
+        CVOutputs,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_inputs: self.control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs,
+            cv_outputs: self.cv_outputs,
+        }
+    }
+
+    /// Create an instance of `PortConnections` with the given CV outputs.
+    pub fn with_cv_outputs<I>(
+        self,
+        cv_outputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+        CVInputs,
+        I,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_inputs: self.control_inputs,
+            control_outputs: self.control_outputs,
+            audio_inputs: self.audio_inputs,
+            audio_outputs: self.audio_outputs,
+            atom_sequence_inputs: self.atom_sequence_inputs,
+            atom_sequence_outputs: self.atom_sequence_outputs,
+            cv_inputs: self.cv_inputs,
+            cv_outputs,
         }
     }
 }
@@ -749,6 +820,8 @@ pub struct Instance {
     audio_outputs: Vec<PortIndex>,
     atom_sequence_inputs: Vec<PortIndex>,
     atom_sequence_outputs: Vec<PortIndex>,
+    cv_inputs: Vec<PortIndex>,
+    cv_outputs: Vec<PortIndex>,
 }
 
 impl Instance {
@@ -767,6 +840,8 @@ impl Instance {
         AudioOutputs,
         AtomSequenceInputs,
         AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
     >(
         &mut self,
         ports: PortConnections<
@@ -777,6 +852,8 @@ impl Instance {
             AudioOutputs,
             AtomSequenceInputs,
             AtomSequenceOutputs,
+            CVInputs,
+            CVOutputs,
         >,
     ) -> Result<(), RunError>
     where
@@ -786,73 +863,97 @@ impl Instance {
         AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
         AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
         AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+        CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+        CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
-        if ports.control_input.len() != self.control_inputs.len() {
+        if ports.control_inputs.len() != self.control_inputs.len() {
             return Err(RunError::ControlInputsSizeMismatch {
                 expected: self.control_inputs.len(),
-                actual: ports.control_input.len(),
+                actual: ports.control_inputs.len(),
             });
         }
-        for (data, index) in ports.control_input.zip(self.control_inputs.iter()) {
+        for (data, index) in ports.control_inputs.zip(self.control_inputs.iter()) {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data as *const f32 as *mut f32);
         }
-        if ports.control_output.len() != self.control_outputs.len() {
+        if ports.control_outputs.len() != self.control_outputs.len() {
             return Err(RunError::ControlOutputsSizeMismatch {
                 expected: self.control_outputs.len(),
-                actual: ports.control_output.len(),
+                actual: ports.control_outputs.len(),
             });
         }
-        for (data, index) in ports.control_output.zip(self.control_outputs.iter()) {
+        for (data, index) in ports.control_outputs.zip(self.control_outputs.iter()) {
             self.inner.instance_mut().connect_port_ptr(index.0, data);
         }
-        if ports.audio_input.len() != self.audio_inputs.len() {
+        if ports.audio_inputs.len() != self.audio_inputs.len() {
             return Err(RunError::AudioInputsSizeMismatch {
                 expected: self.audio_inputs.len(),
-                actual: ports.audio_input.len(),
+                actual: ports.audio_inputs.len(),
             });
         }
-        for (data, index) in ports.audio_input.zip(self.audio_inputs.iter()) {
+        for (data, index) in ports.audio_inputs.zip(self.audio_inputs.iter()) {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_ptr() as *mut f32);
         }
-        if ports.audio_output.len() != self.audio_outputs.len() {
+        if ports.audio_outputs.len() != self.audio_outputs.len() {
             return Err(RunError::AudioOutputsSizeMismatch {
                 expected: self.audio_outputs.len(),
-                actual: ports.audio_output.len(),
+                actual: ports.audio_outputs.len(),
             });
         }
-        for (data, index) in ports.audio_output.zip(self.audio_outputs.iter()) {
+        for (data, index) in ports.audio_outputs.zip(self.audio_outputs.iter()) {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_mut_ptr());
         }
-        if ports.atom_sequence_input.len() != self.atom_sequence_inputs.len() {
+        if ports.atom_sequence_inputs.len() != self.atom_sequence_inputs.len() {
             return Err(RunError::AtomSequenceInputsSizeMismatch {
                 expected: self.atom_sequence_inputs.len(),
-                actual: ports.atom_sequence_input.len(),
+                actual: ports.atom_sequence_inputs.len(),
             });
         }
         for (data, index) in ports
-            .atom_sequence_input
+            .atom_sequence_inputs
             .zip(self.atom_sequence_inputs.iter())
         {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_ptr() as *mut lv2_raw::LV2AtomSequence);
         }
-        if ports.atom_sequence_output.len() != self.atom_sequence_outputs.len() {
+        if ports.atom_sequence_outputs.len() != self.atom_sequence_outputs.len() {
             return Err(RunError::AtomSequenceOutputsSizeMismatch {
                 expected: self.atom_sequence_outputs.len(),
-                actual: ports.atom_sequence_output.len(),
+                actual: ports.atom_sequence_outputs.len(),
             });
         }
         for (data, index) in ports
-            .atom_sequence_output
+            .atom_sequence_outputs
             .zip(self.atom_sequence_outputs.iter())
         {
+            self.inner
+                .instance_mut()
+                .connect_port_ptr(index.0, data.as_mut_ptr());
+        }
+        if ports.cv_inputs.len() != self.cv_inputs.len() {
+            return Err(RunError::CVInputsSizeMismatch {
+                expected: self.cv_inputs.len(),
+                actual: ports.cv_inputs.len(),
+            });
+        }
+        for (data, index) in ports.cv_inputs.zip(self.cv_inputs.iter()) {
+            self.inner
+                .instance_mut()
+                .connect_port_ptr(index.0, data.as_ptr() as *mut f32);
+        }
+        if ports.cv_outputs.len() != self.cv_outputs.len() {
+            return Err(RunError::CVOutputsSizeMismatch {
+                expected: self.cv_outputs.len(),
+                actual: ports.cv_outputs.len(),
+            });
+        }
+        for (data, index) in ports.cv_outputs.zip(self.cv_outputs.iter()) {
             self.inner
                 .instance_mut()
                 .connect_port_ptr(index.0, data.as_mut_ptr());
@@ -864,6 +965,8 @@ impl Instance {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     const MIN_BLOCK_SIZE: usize = 1;
@@ -909,6 +1012,29 @@ mod tests {
                 .with_control_inputs(params.iter());
             unsafe { instance.run(ports).unwrap() };
         }
+    }
+
+    #[test]
+    fn test_with_filter() {
+        let uri = "http://drobilla.net/plugins/mda/EPiano";
+
+        // EPiano only.
+        let world = World::with_plugin_predicate(|p| p.uri() == uri);
+        assert!(world.plugin_by_uri(uri).is_some());
+        assert_eq!(world.iter_plugins().count(), 1);
+
+        // No EPiano.
+        assert!(World::with_plugin_predicate(|p| p.uri() != uri)
+            .plugin_by_uri(uri)
+            .is_none());
+
+        // Empty.
+        assert_eq!(
+            World::with_plugin_predicate(|_| false)
+                .iter_plugins()
+                .count(),
+            0
+        );
     }
 
     #[test]

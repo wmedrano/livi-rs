@@ -59,4 +59,10 @@ pub enum RunError {
     /// The number of atom sequence outputs was different than what the plugin
     /// required.
     AtomSequenceOutputsSizeMismatch { expected: usize, actual: usize },
+
+    /// The number of cv inputs was different than what the plugin required.
+    CVInputsSizeMismatch { expected: usize, actual: usize },
+
+    /// The number of cv outputs was different than what the plugin required.
+    CVOutputsSizeMismatch { expected: usize, actual: usize },
 }
