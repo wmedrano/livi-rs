@@ -1,4 +1,4 @@
-use crate::error;
+use crate::error::EventError;
 use lv2_raw::LV2Atom;
 use std::convert::TryFrom;
 use std::fmt::Debug;
@@ -9,15 +9,16 @@ use std::marker::PhantomData;
 #[repr(packed)]
 pub struct LV2AtomEventBuilder<const MAX_SIZE: usize> {
     /// The atom event.
-    _event: lv2_raw::LV2AtomEvent,
-    /// The data for the atom event. The data is a tuple of the atom type and
-    /// the atom data but it size is restricted to 16 bytes for the moment.
+    event: lv2_raw::LV2AtomEvent,
+    /// The data for the atom event.
     _data: [u8; MAX_SIZE],
 }
 
 impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
-    /// Create a new atom event with the given time and type. The event can be
-    /// filled in by setting the bytes in buffer and calling `set_size`.
+    /// Create a new atom event with the given time and type.
+    ///
+    /// # Note
+    /// If `data` is of type `[u8; MAX_SIZE]`, then consider using `new_full`.
     ///
     /// # Errors
     /// Returns an error if the size of the buffer is greater than `MAX_SIZE`.
@@ -25,17 +26,17 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
         time_in_frames: i64,
         my_type: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::EventError> {
+    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, EventError> {
         let mut buffer = [0; MAX_SIZE];
         if data.len() > buffer.len() {
-            return Err(error::EventError::DataTooLarge {
+            return Err(EventError::DataTooLarge {
                 max_supported_size: MAX_SIZE,
                 actual_size: data.len(),
             });
         }
         buffer[0..data.len()].copy_from_slice(data);
         Ok(LV2AtomEventBuilder {
-            _event: lv2_raw::LV2AtomEvent {
+            event: lv2_raw::LV2AtomEvent {
                 time_in_frames,
                 body: LV2Atom {
                     size: u32::try_from(data.len()).expect("Size exceeds u32 capacity."),
@@ -44,6 +45,24 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
             },
             _data: buffer,
         })
+    }
+
+    /// Create a new atom event with the given data.
+    pub fn new_full(
+        time_in_frames: i64,
+        my_type: lv2_raw::LV2Urid,
+        data: [u8; MAX_SIZE],
+    ) -> LV2AtomEventBuilder<MAX_SIZE> {
+        LV2AtomEventBuilder {
+            event: lv2_raw::LV2AtomEvent {
+                time_in_frames,
+                body: LV2Atom {
+                    size: MAX_SIZE as u32,
+                    mytype: my_type,
+                },
+            },
+            _data: data,
+        }
     }
 
     /// Create a new midi event.
@@ -57,7 +76,7 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
         time_in_frames: i64,
         midi_uri: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, error::EventError> {
+    ) -> Result<LV2AtomEventBuilder<MAX_SIZE>, EventError> {
         LV2AtomEventBuilder::<MAX_SIZE>::new(time_in_frames, midi_uri, data)
     }
 
@@ -75,12 +94,22 @@ pub struct LV2AtomSequence {
     buffer: Vec<u8>,
 }
 
+const MINIMUM_ATOM_SEQUENCE_SIZE: usize = std::mem::size_of::<lv2_raw::LV2AtomSequence>();
+
 impl LV2AtomSequence {
-    /// Create a new sequence of `size` bytes.
+    /// Create a new sequence with a capacity to hold `capacity` bytes.
+    ///
+    /// If `capacity` is too small to hold the header, than it is increased to
+    /// the minimum allowable size which is `16` bytes.
+    ///
+    /// In practice you actually get less usable data than `capacity` because
+    /// along with the header taking a couple bytes, all additional events are
+    /// aligned to 8 bytes which means the sizes are always rounded up to the
+    /// next multiple of 8.
     #[must_use]
-    pub fn new(size: usize) -> LV2AtomSequence {
+    pub fn new(capacity: usize) -> LV2AtomSequence {
         let mut seq = LV2AtomSequence {
-            buffer: vec![0; size],
+            buffer: vec![0; capacity.max(MINIMUM_ATOM_SEQUENCE_SIZE)],
         };
         seq.clear();
         seq
@@ -99,19 +128,28 @@ impl LV2AtomSequence {
     pub fn push_event<const MAX_SIZE: usize>(
         &mut self,
         event: &LV2AtomEventBuilder<MAX_SIZE>,
-    ) -> Result<(), error::EventError> {
-        let new_event_ptr = unsafe {
-            lv2_raw::atomutils::lv2_atom_sequence_append_event(
-                self.as_mut_ptr(),
-                u32::try_from(self.capacity()).expect("Size exceeds capacity of u32."),
-                event.as_ptr(),
-            )
-        };
-        if new_event_ptr.is_null() {
-            Err(error::EventError::SequenceCapacityExceeded)
-        } else {
-            Ok(())
+    ) -> Result<(), EventError> {
+        let event_size =
+            std::mem::size_of::<lv2_raw::LV2AtomEvent>() as u32 + event.event.body.size;
+        let capacity = self.capacity() as u32;
+        let sequence = unsafe { &mut *self.as_mut_ptr() };
+        // This size includes the atom sequence header.
+        let current_sequence_size =
+            std::mem::size_of_val(&sequence.atom) as u32 + sequence.atom.size;
+        if capacity < current_sequence_size + event_size {
+            return Err(EventError::SequenceFull {
+                capacity: capacity as usize,
+                requested: (current_sequence_size + event_size) as usize,
+            });
         }
+        let end = unsafe { lv2_raw::lv2_atom_sequence_end(&sequence.body, sequence.atom.size) }
+            as *mut lv2_raw::LV2AtomEvent;
+        let src_ptr: *const u8 = event.as_ptr().cast();
+        let dst_ptr: *mut u8 = end.cast();
+        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, event_size as usize) };
+        // This size only includes the sequencey body.
+        sequence.atom.size += lv2_raw::lv2_atom_pad_size(event_size);
+        Ok(())
     }
 
     /// Push a new midi event into the sequence. The `midi_data` must be of size
@@ -124,7 +162,7 @@ impl LV2AtomSequence {
         time_in_frames: i64,
         midi_uri: lv2_raw::LV2Urid,
         data: &[u8],
-    ) -> Result<(), error::EventError> {
+    ) -> Result<(), EventError> {
         let event = LV2AtomEventBuilder::<MAX_SIZE>::new_midi(time_in_frames, midi_uri, data)?;
         self.push_event(&event)
     }
@@ -147,6 +185,15 @@ impl LV2AtomSequence {
         self.buffer.len()
     }
 
+    /// Get the current size of the sequence in bytes.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        let raw = unsafe { self.as_ptr().as_ref().unwrap() };
+        let header_size = std::mem::size_of_val(&raw.atom);
+        let body_size = raw.atom.size as usize;
+        header_size + body_size
+    }
+
     /// Iterate over all events (and event data) in the sequence.
     ///
     /// # Panics
@@ -167,9 +214,9 @@ impl LV2AtomSequence {
 
 impl Debug for LV2AtomSequence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let capacity = self.capacity();
         f.debug_struct("Lv2AtomSequence")
-            .field("capacity", &capacity)
+            .field("capacity", &self.capacity())
+            .field("size", &self.size())
             .finish()
     }
 }
@@ -245,6 +292,46 @@ mod tests {
         assert_eq!(10, sequence.iter().count());
         for event in sequence.iter() {
             assert_eq!(event.data, &[0, 10, 20, 30, 40, 50, 60, 70]);
+        }
+    }
+
+    #[test]
+    fn test_sequence_push_events_fails_after_reaching_capacity() {
+        // Keep it aligned to 8 bytes to prevent wasting capacity due to
+        // padding.
+        let event_data = [0; 8];
+        let base_size = MINIMUM_ATOM_SEQUENCE_SIZE;
+        let event_size = std::mem::size_of::<lv2_raw::LV2AtomEvent>() + event_data.len();
+        let event = LV2AtomEventBuilder::new_full(0, 0, event_data);
+
+        let events_to_push = 1_000;
+        let capacity = base_size + (events_to_push * event_size);
+        let mut sequence = LV2AtomSequence::new(capacity);
+        for _ in 0..events_to_push {
+            sequence.push_event(&event).unwrap();
+        }
+
+        assert_eq!(
+            sequence.push_event(&event).err(),
+            Some(EventError::SequenceFull {
+                capacity,
+                requested: capacity + event_size,
+            })
+        );
+    }
+
+    #[test]
+    fn test_sequence_minimum_capacity_is_16() {
+        let sequence = LV2AtomSequence::new(1);
+        assert_eq!(sequence.capacity(), 16);
+    }
+
+    #[test]
+    fn test_sequence_push_event_is_stable() {
+        let event = LV2AtomEventBuilder::<1>::new_full(0, 0, [10]);
+        for capacity in 0..10000 {
+            let mut sequence = LV2AtomSequence::new(capacity);
+            while sequence.push_event(&event).is_ok() {}
         }
     }
 }
