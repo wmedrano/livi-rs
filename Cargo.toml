@@ -1,13 +1,14 @@
 [package]
 authors = ["Will S. Medrano <will.s.medrano@gmail.com>"]
 description = "livi is a library for hosting LV2 plugins."
+documentation = "https://docs.rs/livi"
 edition = "2018"
 keywords = ["realtime", "audio", "lv2", "plugins", "music"]
 license = "MIT"
 name = "livi"
 readme = "README.md"
 repository = "https://github.com/wmedrano/livi-rs"
-version = "0.3.1"
+version = "0.3.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
