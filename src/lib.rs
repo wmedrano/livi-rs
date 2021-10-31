@@ -1,3 +1,40 @@
+//! livi is a library for hosting LV2 plugins in Rust.
+//! ```
+//! use livi;
+//!
+//! let mut world = livi::World::new();
+//! const MIN_BLOCK_SIZE: usize = 1;
+//! const MAX_BLOCK_SIZE: usize = 256;
+//! const SAMPLE_RATE: f64 = 44100.0;
+//! world
+//!     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
+//!     .unwrap();
+//! let plugin = world
+//!     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+//!     .expect("Plugin not found.");
+//! let mut instance = unsafe {
+//!     plugin
+//!         .instantiate(SAMPLE_RATE)
+//!         .expect("Could not instantiate plugin.")
+//! };
+//! let input = {
+//!     let mut s = livi::event::LV2AtomSequence::new(1024);
+//!     let play_note_data = [0x90, 0x40, 0x7f];
+//!     s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
+//!         .unwrap();
+//!     s
+//! };
+//! let params: Vec<f32> = plugin
+//!     .ports_with_type(livi::PortType::ControlInput)
+//!     .map(|p| p.default_value)
+//!     .collect();
+//! let mut outputs = [vec![0.0; MAX_BLOCK_SIZE], vec![0.0; MAX_BLOCK_SIZE]];
+//! let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
+//!     .with_atom_sequence_inputs(std::iter::once(&input))
+//!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
+//!     .with_control_inputs(params.iter());
+//! unsafe { instance.run(ports).unwrap() };
+//! ```
 use crate::error::Run as RunError;
 use crate::event::LV2AtomSequence;
 use log::{error, info, warn};
@@ -448,6 +485,32 @@ pub struct Port {
     pub index: PortIndex,
 }
 
+/// A `PortConnections` object with no connections.
+pub type EmptyPortConnections = PortConnections<
+    'static,
+    std::iter::Empty<&'static f32>,
+    std::iter::Empty<&'static mut f32>,
+    std::iter::Empty<&'static [f32]>,
+    std::iter::Empty<&'static mut [f32]>,
+    std::iter::Empty<&'static LV2AtomSequence>,
+    std::iter::Empty<&'static mut LV2AtomSequence>,
+>;
+
+impl EmptyPortConnections {
+    /// Create a new `PortConnections` object without any connections.
+    pub fn new(sample_count: usize) -> EmptyPortConnections {
+        EmptyPortConnections {
+            sample_count,
+            control_input: std::iter::empty(),
+            control_output: std::iter::empty(),
+            audio_input: std::iter::empty(),
+            audio_output: std::iter::empty(),
+            atom_sequence_input: std::iter::empty(),
+            atom_sequence_output: std::iter::empty(),
+        }
+    }
+}
+
 /// All the inputs and outputs for an instance.
 pub struct PortConnections<
     'a,
@@ -485,6 +548,195 @@ pub struct PortConnections<
 
     /// The events output.
     pub atom_sequence_output: AtomSequenceOutputs,
+}
+
+impl<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+    >
+    PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+    >
+where
+    ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
+    ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
+    AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+    AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+    AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+{
+    /// Create an instance of `PortConnections` with the given control inputs.
+    pub fn with_control_inputs<I>(
+        self,
+        control_inputs: I,
+    ) -> PortConnections<
+        'a,
+        I,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a f32>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_input: control_inputs,
+            control_output: self.control_output,
+            audio_input: self.audio_input,
+            audio_output: self.audio_output,
+            atom_sequence_input: self.atom_sequence_input,
+            atom_sequence_output: self.atom_sequence_output,
+        }
+    }
+
+    /// Create an instance `PortConnections` with the given control outputs.
+    pub fn with_control_outputs<I>(
+        self,
+        control_outputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        I,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a mut f32>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_input: self.control_input,
+            control_output: control_outputs,
+            audio_input: self.audio_input,
+            audio_output: self.audio_output,
+            atom_sequence_input: self.atom_sequence_input,
+            atom_sequence_output: self.atom_sequence_output,
+        }
+    }
+
+    /// Create an instance of `PortConnections` with the given audio inputs.
+    pub fn with_audio_inputs<I>(
+        self,
+        audio_inputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        I,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_input: self.control_input,
+            control_output: self.control_output,
+            audio_input: audio_inputs,
+            audio_output: self.audio_output,
+            atom_sequence_input: self.atom_sequence_input,
+            atom_sequence_output: self.atom_sequence_output,
+        }
+    }
+
+    /// Create an instance of `PortConnections` with the given audio outputs.
+    pub fn with_audio_outputs<I>(
+        self,
+        audio_outputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        I,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_input: self.control_input,
+            control_output: self.control_output,
+            audio_input: self.audio_input,
+            audio_output: audio_outputs,
+            atom_sequence_input: self.atom_sequence_input,
+            atom_sequence_output: self.atom_sequence_output,
+        }
+    }
+
+    /// Create an instance of `PortConnections` with the given sequence inputs.
+    pub fn with_atom_sequence_inputs<I>(
+        self,
+        atom_sequence_inputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        I,
+        AtomSequenceOutputs,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_input: self.control_input,
+            control_output: self.control_output,
+            audio_input: self.audio_input,
+            audio_output: self.audio_output,
+            atom_sequence_input: atom_sequence_inputs,
+            atom_sequence_output: self.atom_sequence_output,
+        }
+    }
+
+    /// Create an instance of `PortConnections` with the given sequence outputs.
+    pub fn with_atom_sequence_outputs<I>(
+        self,
+        atom_sequence_outputs: I,
+    ) -> PortConnections<
+        'a,
+        ControlInputs,
+        ControlOutputs,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        I,
+    >
+    where
+        I: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+    {
+        PortConnections {
+            sample_count: self.sample_count,
+            control_input: self.control_input,
+            control_output: self.control_output,
+            audio_input: self.audio_input,
+            audio_output: self.audio_output,
+            atom_sequence_input: self.atom_sequence_input,
+            atom_sequence_output: atom_sequence_outputs,
+        }
+    }
 }
 
 /// The index of the port within a plugin.
@@ -616,9 +868,48 @@ impl Instance {
 mod tests {
     use super::*;
 
+    const MIN_BLOCK_SIZE: usize = 1;
+    const MAX_BLOCK_SIZE: usize = 256;
+    const SAMPLE_RATE: f64 = 44100.0;
+
     #[test]
     fn test_midi_urid_ok() {
         let world = World::new();
         assert!(world.midi_urid() > 0, "midi urid is not valid");
+    }
+
+    #[test]
+    fn test_mda_epiano() {
+        let mut world = World::new();
+        world
+            .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
+            .unwrap();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .expect("Plugin not found.");
+        let mut instance = unsafe {
+            plugin
+                .instantiate(SAMPLE_RATE)
+                .expect("Could not instantiate plugin.")
+        };
+        let input = {
+            let mut s = LV2AtomSequence::new(1024);
+            let play_note_data = [0x90, 0x40, 0x7f];
+            s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
+                .unwrap();
+            s
+        };
+        let params: Vec<f32> = plugin
+            .ports_with_type(PortType::ControlInput)
+            .map(|p| p.default_value)
+            .collect();
+        let mut outputs = [vec![0.0; MAX_BLOCK_SIZE], vec![0.0; MAX_BLOCK_SIZE]];
+        for block_size in MIN_BLOCK_SIZE..MAX_BLOCK_SIZE {
+            let ports = EmptyPortConnections::new(block_size)
+                .with_atom_sequence_inputs(std::iter::once(&input))
+                .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
+                .with_control_inputs(params.iter());
+            unsafe { instance.run(ports).unwrap() };
+        }
     }
 }
