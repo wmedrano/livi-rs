@@ -1,5 +1,11 @@
 # Livi
 
+[![crates.io](https://img.shields.io/crates/v/livi.svg)](https://crates.io/crates/livi)
+[![docs.rs](https://docs.rs/livi/badge.svg)](https://docs.rs/livi)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://github.com/wmedrano/livi-rs/actions/workflows/test.yml/badge.svg)](https://github.com/wmedrano/livi-rs/actions/workflows/test.yml)
+
 A library for hosting LV2 plugins.
 
 Note: This is a work in progress and has not yet been full tested.
