@@ -23,7 +23,7 @@ pub enum InstantiateError {
 }
 
 /// An error that occurs when dealing with atom events.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EventError {
     /// The size of the data is too large than what is supported for the event.
     DataTooLarge {
@@ -32,7 +32,7 @@ pub enum EventError {
     },
 
     /// The size of the sequence has exceeded its capacity.
-    SequenceCapacityExceeded,
+    SequenceFull { capacity: usize, requested: usize },
 }
 
 /// An error associated with running a plugin.
