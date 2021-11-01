@@ -14,12 +14,13 @@ const EMPTY_OPTION: LV2_Options_Option = LV2_Options_Option {
     value: std::ptr::null(),
 };
 
-#[allow(clippy::vec_box)]
 pub struct Options {
     data: Vec<lv2_sys::LV2_Options_Option>,
     values: HashMap<LV2Urid, Box<i32>>,
     feature: LV2Feature,
 }
+
+unsafe impl Send for Options {}
 
 impl Options {
     pub fn new() -> Options {

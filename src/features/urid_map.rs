@@ -42,6 +42,8 @@ pub struct UridMap {
     urid_unmap_feature: LV2Feature,
 }
 
+unsafe impl Send for UridMap {}
+
 impl UridMap {
     pub fn new() -> UridMap {
         let map = Box::new(Mutex::new(HashMap::new()));
