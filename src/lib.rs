@@ -873,9 +873,7 @@ impl Instance {
             });
         }
         for (data, index) in ports.control_inputs.zip(self.control_inputs.iter()) {
-            self.inner
-                .instance_mut()
-                .connect_port_ptr(index.0, data as *const f32 as *mut f32);
+            self.inner.instance_mut().connect_port(index.0, data);
         }
         if ports.control_outputs.len() != self.control_outputs.len() {
             return Err(RunError::ControlOutputsSizeMismatch {
@@ -884,7 +882,7 @@ impl Instance {
             });
         }
         for (data, index) in ports.control_outputs.zip(self.control_outputs.iter()) {
-            self.inner.instance_mut().connect_port_ptr(index.0, data);
+            self.inner.instance_mut().connect_port_mut(index.0, data);
         }
         if ports.audio_inputs.len() != self.audio_inputs.len() {
             return Err(RunError::AudioInputsSizeMismatch {
@@ -895,7 +893,7 @@ impl Instance {
         for (data, index) in ports.audio_inputs.zip(self.audio_inputs.iter()) {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_ptr() as *mut f32);
+                .connect_port(index.0, data.as_ptr());
         }
         if ports.audio_outputs.len() != self.audio_outputs.len() {
             return Err(RunError::AudioOutputsSizeMismatch {
@@ -906,7 +904,7 @@ impl Instance {
         for (data, index) in ports.audio_outputs.zip(self.audio_outputs.iter()) {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_mut_ptr());
+                .connect_port_mut(index.0, data.as_mut_ptr());
         }
         if ports.atom_sequence_inputs.len() != self.atom_sequence_inputs.len() {
             return Err(RunError::AtomSequenceInputsSizeMismatch {
@@ -920,7 +918,7 @@ impl Instance {
         {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_ptr() as *mut lv2_raw::LV2AtomSequence);
+                .connect_port(index.0, data.as_ptr());
         }
         if ports.atom_sequence_outputs.len() != self.atom_sequence_outputs.len() {
             return Err(RunError::AtomSequenceOutputsSizeMismatch {
@@ -934,7 +932,7 @@ impl Instance {
         {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_mut_ptr());
+                .connect_port_mut(index.0, data.as_mut_ptr());
         }
         if ports.cv_inputs.len() != self.cv_inputs.len() {
             return Err(RunError::CVInputsSizeMismatch {
@@ -945,7 +943,7 @@ impl Instance {
         for (data, index) in ports.cv_inputs.zip(self.cv_inputs.iter()) {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_ptr() as *mut f32);
+                .connect_port(index.0, data.as_ptr());
         }
         if ports.cv_outputs.len() != self.cv_outputs.len() {
             return Err(RunError::CVOutputsSizeMismatch {
@@ -956,7 +954,7 @@ impl Instance {
         for (data, index) in ports.cv_outputs.zip(self.cv_outputs.iter()) {
             self.inner
                 .instance_mut()
-                .connect_port_ptr(index.0, data.as_mut_ptr());
+                .connect_port_mut(index.0, data.as_mut_ptr());
         }
         self.inner.run(ports.sample_count);
         Ok(())
