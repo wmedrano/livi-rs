@@ -34,6 +34,8 @@ jobs:
         run: sudo apt-get -y install liblilv-dev lv2-examples mda-lv2 jackd libjack0 libjack-dev
       - name: Checkout Repository
         uses: actions/checkout@v2
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1
       - name: Publish
         uses: katyo/publish-crates@v1
         continue-on-error: true
