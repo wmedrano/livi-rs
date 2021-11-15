@@ -8,9 +8,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-
     steps:
       - name: Install Dependencies
         run: sudo apt-get -y install liblilv-dev lv2-examples mda-lv2 jackd libjack0 libjack-dev
