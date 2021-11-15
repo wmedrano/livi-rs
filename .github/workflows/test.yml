@@ -23,3 +23,15 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
+  release:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: contains('refs/heads/main', github.ref)
+    steps:
+      - name: Install Dependencies
+        run: sudo apt-get -y install liblilv-dev lv2-examples mda-lv2 jackd libjack0 libjack-dev
+      - name: Publish
+        uses: katyo/publish-crates@v1
+        continue-on-error: true
+        with:
+          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
