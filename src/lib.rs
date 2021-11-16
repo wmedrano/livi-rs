@@ -39,7 +39,10 @@ use crate::event::LV2AtomSequence;
 use crate::features::Features;
 use error::{InitializeBlockLengthError, InstantiateError, RunError};
 use log::{debug, error, info, warn};
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 
 /// Contains all the error types for the `livi` crate.
 pub mod error;
@@ -374,6 +377,27 @@ impl Plugin {
     }
 }
 
+impl Debug for Plugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ports = PortsDebug { plugin: self };
+        f.debug_struct("Plugin")
+            .field("uri", &self.uri())
+            .field("name", &self.name())
+            .field("ports", &ports)
+            .finish()
+    }
+}
+
+struct PortsDebug<'a> {
+    plugin: &'a Plugin,
+}
+
+impl<'a> Debug for PortsDebug<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.plugin.ports()).finish()
+    }
+}
+
 /// The type of IO for the port. Either input or output.
 #[derive(Copy, Clone, Debug)]
 enum IOType {
@@ -434,6 +458,7 @@ pub enum PortType {
 }
 
 /// A port represents a connection (either input or output) to a plugin.
+#[derive(Clone, Debug)]
 pub struct Port {
     /// The type of port.
     pub port_type: PortType,
@@ -809,6 +834,7 @@ where
 }
 
 /// The index of the port within a plugin.
+#[derive(Copy, Clone, Debug)]
 pub struct PortIndex(pub usize);
 
 /// An instance of a plugin that can process inputs and outputs.
