@@ -33,7 +33,9 @@ jobs:
     if: contains('refs/heads/main', github.ref)
     steps:
       - name: Install Dependencies
-        run: sudo apt-get -y install liblilv-dev lv2-examples mda-lv2 jackd libjack0 libjack-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install liblilv-dev lv2-examples mda-lv2 jackd libjack0 libjack-dev
       - name: Checkout Repository
         uses: actions/checkout@v2
       - name: Rust Cache

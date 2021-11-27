@@ -210,6 +210,7 @@ impl Instance {
         CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
         CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
+        let sample_count = ports.sample_count;
         if ports.control_inputs.len() != self.control_inputs.len() {
             return Err(RunError::ControlInputsSizeMismatch {
                 expected: self.control_inputs.len(),
@@ -235,6 +236,12 @@ impl Instance {
             });
         }
         for (data, index) in ports.audio_inputs.zip(self.audio_inputs.iter()) {
+            if data.len() < sample_count {
+                return Err(RunError::AudioInputSampleCountTooSmall {
+                    expected: sample_count,
+                    actual: data.len(),
+                });
+            }
             self.inner
                 .instance_mut()
                 .connect_port(index.0, data.as_ptr());
@@ -246,6 +253,12 @@ impl Instance {
             });
         }
         for (data, index) in ports.audio_outputs.zip(self.audio_outputs.iter()) {
+            if data.len() < sample_count {
+                return Err(RunError::AudioOutputSampleCountTooSmall {
+                    expected: sample_count,
+                    actual: data.len(),
+                });
+            }
             self.inner
                 .instance_mut()
                 .connect_port_mut(index.0, data.as_mut_ptr());
@@ -302,5 +315,48 @@ impl Instance {
         }
         self.inner.run(ports.sample_count);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn output_buffer_too_small_produces_error() {
+        let block_size = 1024;
+        let sample_rate = 44100.0;
+        let mut world = crate::World::new();
+        world
+            .initialize_block_length(block_size, block_size)
+            .unwrap();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .expect("Plugin not found.");
+        let mut instance = unsafe {
+            plugin
+                .instantiate(sample_rate)
+                .expect("Could not instantiate plugin.")
+        };
+        let input = crate::event::LV2AtomSequence::new(1024);
+        let params: Vec<f32> = plugin
+            .ports_with_type(crate::PortType::ControlInput)
+            .map(|p| p.default_value)
+            .collect();
+        let mut outputs_that_are_too_small = [vec![0.0; 1], vec![0.0; 1]];
+        let ports = crate::EmptyPortConnections::new(block_size)
+            .with_atom_sequence_inputs(std::iter::once(&input))
+            .with_audio_outputs(
+                outputs_that_are_too_small
+                    .iter_mut()
+                    .map(|output| output.as_mut_slice()),
+            )
+            .with_control_inputs(params.iter());
+        assert_eq!(
+            unsafe { instance.run(ports) },
+            Err(crate::error::RunError::AudioOutputSampleCountTooSmall {
+                expected: block_size,
+                actual: 1
+            })
+        );
     }
 }
