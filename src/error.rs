@@ -36,7 +36,7 @@ pub enum EventError {
 }
 
 /// An error associated with running a plugin.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RunError {
     /// The number of control inputs was different than what the plugin
     /// required.
@@ -49,8 +49,16 @@ pub enum RunError {
     /// The number of audio inputs was different than what the plugin required.
     AudioInputsSizeMismatch { expected: usize, actual: usize },
 
+    /// The number of samples in the audio inputs was too small to contain the
+    /// number of specified samples.
+    AudioInputSampleCountTooSmall { expected: usize, actual: usize },
+
     /// The number of audio outputs was different than what the plugin required.
     AudioOutputsSizeMismatch { expected: usize, actual: usize },
+
+    /// The number of samples in the audio inputs was too small to contain the
+    /// number of specified samples.
+    AudioOutputSampleCountTooSmall { expected: usize, actual: usize },
 
     /// The number of atom sequence inputs was different than what the plugin
     /// required.
