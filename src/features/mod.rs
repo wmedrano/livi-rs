@@ -5,6 +5,7 @@ use std::{collections::HashSet, ffi::CStr};
 
 pub mod options;
 pub mod urid_map;
+pub mod worker;
 
 const BOUNDED_BLOCK_LENGTH_URI: &[u8] = b"http://lv2plug.in/ns/ext/buf-size#boundedBlockLength\0";
 

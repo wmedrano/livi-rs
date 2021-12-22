@@ -17,6 +17,7 @@ lilv = "0.2"
 log = "0.4"
 lv2-sys = "2"
 lv2_raw = "0.2"
+ringbuf = "0.2.6"
 
 [dev-dependencies]
 env_logger = "0.9"
