@@ -1,12 +1,10 @@
 use core::ffi::c_void;
 use ringbuf::{Consumer, Producer, RingBuffer};
-use std::io::Read;
 use std::mem::size_of;
 use std::slice;
-use std::str;
 
-type WorkerMessageSender = Producer<u8>;
-type WorkerMessageReceiver = Consumer<u8>;
+pub(crate) type WorkerMessageSender = Producer<u8>;
+pub(crate) type WorkerMessageReceiver = Consumer<u8>;
 
 const MAX_MESSAGE_SIZE: usize = 512;
 type MessageBody = [u8; MAX_MESSAGE_SIZE];
@@ -55,35 +53,34 @@ fn pop_message(receiver: &mut WorkerMessageReceiver) -> WorkerMessage {
     let size = usize::from_be_bytes(size_as_bytes);
     let mut body: MessageBody = [0; MAX_MESSAGE_SIZE];
     let mut slice = &mut body[..];
-    let result = receiver.write_into(&mut slice, Some(size)).unwrap();
-    WorkerMessage {
-        size: size,
-        body: body,
-    }
+    receiver.write_into(&mut slice, Some(size)).unwrap();
+    WorkerMessage { size, body }
 }
 
-unsafe extern "C" fn schedule_work(
+pub extern "C" fn schedule_work(
     handle: lv2_sys::LV2_Worker_Schedule_Handle,
     size: u32,
     body: *const c_void,
 ) -> lv2_sys::LV2_Worker_Status {
-    let sender = &mut *(handle as *mut WorkerMessageSender);
+    let sender = unsafe { &mut *(handle as *mut WorkerMessageSender) };
     publish_message(sender, size as usize, body as *mut u8)
 }
 
-unsafe extern "C" fn worker_respond(
+extern "C" fn worker_respond(
     handle: lv2_sys::LV2_Worker_Respond_Handle,
     size: u32,
     body: *const c_void,
 ) -> lv2_sys::LV2_Worker_Status {
-    let sender = &mut *(handle as *mut WorkerMessageSender);
+    let sender = unsafe { &mut *(handle as *mut WorkerMessageSender) };
     publish_message(sender, size as usize, body as *mut u8)
 }
 
-// Run this in a NON-real-time thread
-// to do non-realtime work and send
-// the results back to the realtime thread.
-fn maybe_do_work(
+pub(crate) fn instantiate_queue() -> (WorkerMessageSender, WorkerMessageReceiver) {
+    let (sender, receiver) = RingBuffer::<u8>::new(8192).split();
+    (sender, receiver)
+}
+
+fn do_work(
     worker_interface: &mut lv2_sys::LV2_Worker_Interface,
     receiver: &mut WorkerMessageReceiver,
     handle: lv2_sys::LV2_Handle,
@@ -92,24 +89,86 @@ fn maybe_do_work(
     while receiver.len() > size_of::<usize>() {
         let mut message = pop_message(receiver);
         if let Some(work_function) = worker_interface.work {
-            let sender_ptr = sender as *mut WorkerMessageSender as *mut c_void;
-            let body_ptr = message.data();
+            let sender = sender as *mut WorkerMessageSender as *mut c_void;
+            let body = message.data();
             unsafe {
                 work_function(
                     handle,
                     Some(worker_respond),
-                    sender_ptr,
+                    sender,
                     message.size as u32,
-                    body_ptr,
+                    body,
                 )
             };
         }
     }
 }
 
+/// A plugin instance delegates non-realtime-safe
+/// work to a Worker, which performs the work
+/// asynchronously in another thread before
+/// sending the results back to the plugin.
+///
+/// The worker itself is easy to use. Once you obtain
+/// a worker from the plugin, just call worker.do_work()
+/// periodically and that's it. Currently there's no method
+/// to "wait" on work and only perform work when messages arrive,
+/// you have to keep calling do_work while the plugin is alive.
+///
+/// The worker must be dropped before dropping the plugin instance.
+/// I need to learn more about rust lifetimes to see how we can
+/// make the worker safer to use.
+pub struct Worker {
+    interface: lv2_sys::LV2_Worker_Interface,
+    instance_handle: lv2_sys::LV2_Handle,
+    receiver: WorkerMessageReceiver, // Where we find work to do
+    sender: WorkerMessageSender,     // Where we send the results of our work
+}
+
+impl Worker {
+    pub fn new(
+        interface: lv2_sys::LV2_Worker_Interface,
+        instance_handle: lv2_sys::LV2_Handle,
+        receiver: WorkerMessageReceiver,
+        sender: WorkerMessageSender,
+    ) -> Self {
+        Worker {
+            interface,
+            instance_handle,
+            receiver,
+            sender,
+        }
+    }
+
+    /// Run this in a NON-real-time thread
+    /// to do non-realtime work and send
+    /// the results back to the realtime thread.
+    pub fn do_work(&mut self) {
+        do_work(
+            &mut self.interface,
+            &mut self.receiver,
+            self.instance_handle,
+            &mut self.sender,
+        );
+    }
+}
+
+pub(crate) unsafe fn maybe_get_worker_interface(
+    instance: &mut lilv::instance::ActiveInstance,
+) -> Option<lv2_sys::LV2_Worker_Interface> {
+    Some(
+        *(instance
+            .instance()
+            .extension_data::<lv2_sys::LV2_Worker_Interface>(
+                std::str::from_utf8(lv2_sys::LV2_WORKER__interface).unwrap(),
+            )?
+            .as_ptr()),
+    )
+}
+
 // Run this in the real-time thread
 // to process responses from the async worker.
-fn handle_work_responses(
+pub(crate) fn handle_work_responses(
     worker_interface: &mut lv2_sys::LV2_Worker_Interface,
     receiver: &mut WorkerMessageReceiver,
     handle: lv2_sys::LV2_Handle,
@@ -126,7 +185,10 @@ fn handle_work_responses(
 // Run this in the real-time thread
 // to indicate all work responses have
 // been handled.
-fn end_run(worker_interface: &mut lv2_sys::LV2_Worker_Interface, handle: lv2_sys::LV2_Handle) {
+pub(crate) fn end_run(
+    worker_interface: &mut lv2_sys::LV2_Worker_Interface,
+    handle: lv2_sys::LV2_Handle,
+) {
     if let Some(end_function) = worker_interface.end_run {
         unsafe { end_function(handle) };
     }
@@ -135,6 +197,7 @@ fn end_run(worker_interface: &mut lv2_sys::LV2_Worker_Interface, handle: lv2_sys
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str;
 
     #[test]
     fn test_get_actual_size() {
@@ -153,9 +216,9 @@ mod tests {
         let sentence_to_transfer = String::from("This is a message for you");
         let mut data = sentence_to_transfer.clone().into_bytes();
         publish_message(&mut sender, data.len(), data.as_mut_ptr());
-        let mut message = pop_message(&mut receiver);
+        let message = pop_message(&mut receiver);
         let body = &message.body[..message.size];
-        let message_body = str::from_utf8(&body).unwrap();
+        let message_body = str::from_utf8(body).unwrap();
         assert_eq!(sentence_to_transfer, message_body);
     }
 }
