@@ -3,6 +3,8 @@
 //! use livi;
 //!
 //! let mut world = livi::World::new();
+//! // Running a plugin for less samples than MIN_BLOCK_SIZE or more samples than
+//! // MAX_BLOCK_SIZE will fail.
 //! const MIN_BLOCK_SIZE: usize = 1;
 //! const MAX_BLOCK_SIZE: usize = 256;
 //! const SAMPLE_RATE: f64 = 44100.0;
@@ -10,6 +12,8 @@
 //!     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
 //!     .unwrap();
 //! let plugin = world
+//! // This is the URI for mda EPiano. You can use the `lv2ls` command line
+//! // utility to see all available LV2 plugins.
 //!     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
 //!     .expect("Plugin not found.");
 //! let mut instance = unsafe {
@@ -17,31 +21,26 @@
 //!         .instantiate(SAMPLE_RATE)
 //!         .expect("Could not instantiate plugin.")
 //! };
-//! let input = {
-//!     let mut s = livi::event::LV2AtomSequence::new(1024);
-//!     let play_note_data = [0x90, 0x40, 0x7f];
-//!     s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
-//!         .unwrap();
-//!     s
-//! };
-//! let params: Vec<f32> = plugin
-//!     .ports_with_type(livi::PortType::ControlInput)
-//!     .map(|p| p.default_value)
-//!     .collect();
-//! let mut outputs = [vec![0.0; MAX_BLOCK_SIZE], vec![0.0; MAX_BLOCK_SIZE]];
-//! let ports = livi::EmptyPortConnections::new(MAX_BLOCK_SIZE)
-//!     .with_atom_sequence_inputs(std::iter::once(&input))
-//!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
-//!     .with_control_inputs(params.iter());
+//!
+//! // Where midi events will be read from.
+//! const ATOM_SEQUENCE_SIZE: usize = 32768;
+//! // port_data contains all the input and outputs for the plugin. Alternatively,
+//! // you can create your own buffers and build ports starting with
+//! // `EmptyPortConnections::new`. See `./examples/livi-jack.rs` for how to buidl
+//! // ports from your own buffers.
+//! let mut port_data = plugin.build_port_data(ATOM_SEQUENCE_SIZE)
+//!     .expect("Could not build port data.");
+//! let ports = port_data.as_port_connections(MAX_BLOCK_SIZE);
 //! unsafe { instance.run(ports).unwrap() };
-//! ```
 use crate::error::InitializeBlockLengthError;
 use crate::features::Features;
 use log::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 
 pub use plugin::{Instance, Plugin};
-pub use port::{EmptyPortConnections, Port, PortConnections, PortIndex, PortType};
+pub use port::{
+    Channels, EmptyPortConnections, Port, PortConnections, PortData, PortIndex, PortType,
+};
 
 /// Contains all the error types for the `livi` crate.
 pub mod error;

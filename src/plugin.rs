@@ -40,9 +40,9 @@ impl Plugin {
     /// Panics if the world resource mutex could not be locked.
     pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
         let features = self.resources.features.lock().unwrap();
-        if features.min_and_max_block_length.is_none() {
-            return Err(InstantiateError::BlockLengthNotInitialized);
-        }
+        let (min_block_size, max_block_size) = features
+            .min_and_max_block_length
+            .ok_or(InstantiateError::BlockLengthNotInitialized)?;
         let instance = self
             .inner
             .instantiate(sample_rate, features.iter_features())
@@ -69,6 +69,8 @@ impl Plugin {
         }
         Ok(Instance {
             inner: instance.activate(),
+            min_block_size,
+            max_block_size,
             control_inputs,
             control_outputs,
             audio_inputs,
@@ -128,6 +130,45 @@ impl Plugin {
         })
     }
 
+    pub fn build_port_data(&self, atom_sequence_size: usize) -> Option<crate::port::PortData> {
+        let features = self.resources.features.lock().unwrap();
+        let (_, max_block_size) = features.min_and_max_block_length?;
+        Some(crate::port::PortData {
+            control_inputs: self
+                .ports_with_type(PortType::ControlInput)
+                .map(|p| p.default_value)
+                .collect(),
+            control_outputs: self
+                .ports_with_type(PortType::ControlOutput)
+                .map(|p| p.default_value)
+                .collect(),
+            audio_inputs: crate::port::Channels::new(
+                self.ports_with_type(PortType::AudioInput).count(),
+                max_block_size,
+            ),
+            audio_outputs: crate::port::Channels::new(
+                self.ports_with_type(PortType::AudioOutput).count(),
+                max_block_size,
+            ),
+            atom_sequence_inputs: self
+                .ports_with_type(PortType::AtomSequenceInput)
+                .map(|_| crate::event::LV2AtomSequence::new(atom_sequence_size))
+                .collect(),
+            atom_sequence_outputs: self
+                .ports_with_type(PortType::AtomSequenceOutput)
+                .map(|_| crate::event::LV2AtomSequence::new(atom_sequence_size))
+                .collect(),
+            cv_inputs: crate::port::Channels::new(
+                self.ports_with_type(PortType::CVInput).count(),
+                max_block_size,
+            ),
+            cv_outputs: crate::port::Channels::new(
+                self.ports_with_type(PortType::CVOutput).count(),
+                max_block_size,
+            ),
+        })
+    }
+
     /// Return all ports with the given type.
     pub fn ports_with_type(&self, port_type: PortType) -> impl '_ + Iterator<Item = Port> {
         self.ports().filter(move |p| p.port_type == port_type)
@@ -158,6 +199,8 @@ impl<'a> Debug for PortsDebug<'a> {
 /// An instance of a plugin that can process inputs and outputs.
 pub struct Instance {
     inner: lilv::instance::ActiveInstance,
+    min_block_size: usize,
+    max_block_size: usize,
     control_inputs: Vec<PortIndex>,
     control_outputs: Vec<PortIndex>,
     audio_inputs: Vec<PortIndex>,
@@ -211,6 +254,18 @@ impl Instance {
         CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
         let sample_count = ports.sample_count;
+        if sample_count < self.min_block_size {
+            return Err(RunError::SampleCountTooSmall {
+                min_supported: self.min_block_size,
+                actual: sample_count,
+            });
+        }
+        if sample_count > self.max_block_size {
+            return Err(RunError::SampleCountTooLarge {
+                max_supported: self.max_block_size,
+                actual: sample_count,
+            });
+        }
         if ports.control_inputs.len() != self.control_inputs.len() {
             return Err(RunError::ControlInputsSizeMismatch {
                 expected: self.control_inputs.len(),
@@ -356,6 +411,60 @@ mod tests {
             Err(crate::error::RunError::AudioOutputSampleCountTooSmall {
                 expected: block_size,
                 actual: 1
+            })
+        );
+    }
+
+    #[test]
+    fn sample_count_smaller_than_supported_block_size_produces_error() {
+        let mut world = crate::World::new();
+        let supported_block_size = (512, 1024);
+        let lower_than_supported_block_size = 256;
+        world
+            .initialize_block_length(supported_block_size.0, supported_block_size.1)
+            .unwrap();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .expect("Plugin not found.");
+        let mut instance = unsafe {
+            plugin
+                .instantiate(44100.0)
+                .expect("Could not instantiate plugin.")
+        };
+        let mut port_data = plugin.build_port_data(1024).unwrap();
+        let ports = port_data.as_port_connections(lower_than_supported_block_size);
+        assert_eq!(
+            unsafe { instance.run(ports) },
+            Err(crate::error::RunError::SampleCountTooSmall {
+                min_supported: 512,
+                actual: 256
+            })
+        );
+    }
+
+    #[test]
+    fn sample_count_larger_than_supported_block_size_produces_error() {
+        let mut world = crate::World::new();
+        let supported_block_size = (512, 1024);
+        let higher_than_supported_block_size = 2048;
+        world
+            .initialize_block_length(supported_block_size.0, supported_block_size.1)
+            .unwrap();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .expect("Plugin not found.");
+        let mut instance = unsafe {
+            plugin
+                .instantiate(44100.0)
+                .expect("Could not instantiate plugin.")
+        };
+        let mut port_data = plugin.build_port_data(1024).unwrap();
+        let ports = port_data.as_port_connections(higher_than_supported_block_size);
+        assert_eq!(
+            unsafe { instance.run(ports) },
+            Err(crate::error::RunError::SampleCountTooLarge {
+                max_supported: 1024,
+                actual: 2048,
             })
         );
     }

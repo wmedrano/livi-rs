@@ -29,15 +29,17 @@ fn main() {
 
     let mut livi = livi::World::new();
     let plugin = livi
-        .iter_plugins()
-        .find(|p| p.uri() == config.plugin_uri)
+        .plugin_by_uri(&config.plugin_uri)
         .unwrap_or_else(|| panic!("Could not find plugin with URI {}", config.plugin_uri));
 
     let (client, status) =
         jack::Client::new(&plugin.name(), jack::ClientOptions::NO_START_SERVER).unwrap();
     info!("Created jack client {:?} with status {:?}.", client, status);
 
-    livi.initialize_block_length(client.buffer_size() as usize, client.buffer_size() as usize)
+    let buffer_size = client.buffer_size() as usize;
+    // Note: Running the plugin will fail if the buffer size is changed to not
+    // be within this range.
+    livi.initialize_block_length(buffer_size.min(1), buffer_size.max(16384))
         .unwrap();
     let process_handler = Processor::new(&livi, plugin, &client);
 
@@ -156,6 +158,12 @@ impl jack::ProcessHandler for Processor {
         for (dst, src) in &mut self.event_outputs.iter_mut() {
             copy_atom_sequence_to_midi_out(src, dst, ps, self.midi_urid)
         }
+        jack::Control::Continue
+    }
+
+    fn buffer_size(&mut self, _: &jack::Client, _: jack::Frames) -> jack::Control {
+        // TODO: recreate livi::World with new buffer_size if buffer_size is not
+        // within the initialized block sizes.
         jack::Control::Continue
     }
 }

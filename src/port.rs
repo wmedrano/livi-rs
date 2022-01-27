@@ -59,6 +59,10 @@ pub enum PortType {
     CVOutput,
 }
 
+/// The index of the port within a plugin.
+#[derive(Copy, Clone, Debug)]
+pub struct PortIndex(pub usize);
+
 /// A port represents a connection (either input or output) to a plugin.
 #[derive(Clone, Debug)]
 pub struct Port {
@@ -152,6 +156,118 @@ pub struct PortConnections<
 
     /// The CV outputs.
     pub cv_outputs: CVOutputs,
+}
+
+/// Channels holds audio/signal data for several channels. For example,
+/// `Channels::new(2, 512)` will contain two channels, each with 512 samples.
+pub struct Channels {
+    channels: usize,
+    buffer_size: usize,
+    data: Vec<f32>,
+}
+
+impl Channels {
+    /// Create a new `Channels` object with the specified number of channels and
+    /// the specified buffer_size.
+    pub fn new(channels: usize, buffer_size: usize) -> Channels {
+        Channels {
+            channels,
+            buffer_size,
+            data: vec![0.0; channels * buffer_size],
+        }
+    }
+
+    /// Return the number of channels available.
+    pub fn channels(&self) -> usize {
+        self.channels
+    }
+
+    /// Returns the size of the data in each channel.
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+
+    /// Iterate over the data in each channel.
+    pub fn iter(&self) -> impl ExactSizeIterator + Iterator<Item = &[f32]> {
+        self.data.chunks_exact(self.buffer_size)
+    }
+
+    /// Iterate over the data in each channel.
+    pub fn iter_mut(&mut self) -> impl ExactSizeIterator + Iterator<Item = &mut [f32]> {
+        self.data.chunks_exact_mut(self.buffer_size)
+    }
+
+    pub fn get(&self, channel_index: usize) -> Option<&[f32]> {
+        let start = channel_index * self.buffer_size;
+        let end = start + self.buffer_size;
+        if end > self.data.len() {
+            None
+        } else {
+            Some(&self.data[start..end])
+        }
+    }
+
+    pub fn get_mut(&mut self, channel_index: usize) -> Option<&mut [f32]> {
+        let start = channel_index * self.buffer_size;
+        let end = start + self.buffer_size;
+        if end > self.data.len() {
+            None
+        } else {
+            Some(&mut self.data[start..end])
+        }
+    }
+}
+
+/// PortData contains all the inputs and outputs for a single plugin instance.
+///
+/// It may not necessarily be as efficient as creating your own buffers but it
+/// is an easy way to get started.
+pub struct PortData {
+    /// The control inputs. Typically each of these values is a single parameter
+    /// value.
+    pub control_inputs: Vec<f32>,
+    /// The control outputs.
+    pub control_outputs: Vec<f32>,
+    /// The audio inputs.
+    pub audio_inputs: Channels,
+    /// The audio outputs.
+    pub audio_outputs: Channels,
+    /// The events input. Midi nodes are typically input here.
+    pub atom_sequence_inputs: Vec<LV2AtomSequence>,
+    /// The events output.
+    pub atom_sequence_outputs: Vec<LV2AtomSequence>,
+    /// The cv inputs.
+    pub cv_inputs: Channels,
+    /// The cv outputs.
+    pub cv_outputs: Channels,
+}
+
+impl PortData {
+    pub fn as_port_connections(
+        &mut self,
+        sample_count: usize,
+    ) -> PortConnections<
+        impl ExactSizeIterator + Iterator<Item = &'_ f32>,
+        impl ExactSizeIterator + Iterator<Item = &'_ mut f32>,
+        impl ExactSizeIterator + Iterator<Item = &'_ [f32]>,
+        impl ExactSizeIterator + Iterator<Item = &'_ mut [f32]>,
+        impl ExactSizeIterator + Iterator<Item = &'_ LV2AtomSequence>,
+        impl ExactSizeIterator + Iterator<Item = &'_ mut LV2AtomSequence>,
+        impl ExactSizeIterator + Iterator<Item = &'_ [f32]>,
+        impl ExactSizeIterator + Iterator<Item = &'_ mut [f32]>,
+    > {
+        PortConnections {
+            sample_count,
+            control_inputs: self.control_inputs.iter(),
+            control_outputs: self.control_outputs.iter_mut(),
+            audio_inputs: self.audio_inputs.iter(),
+            audio_outputs: self.audio_outputs.iter_mut(),
+            atom_sequence_inputs: self.atom_sequence_inputs.iter(),
+            atom_sequence_outputs: self.atom_sequence_outputs.iter_mut(),
+            cv_inputs: self.cv_inputs.iter(),
+            cv_outputs: self.cv_outputs.iter_mut(),
+        }
+    }
 }
 
 impl<
@@ -435,6 +551,45 @@ where
     }
 }
 
-/// The index of the port within a plugin.
-#[derive(Copy, Clone, Debug)]
-pub struct PortIndex(pub usize);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_contains_equally_sized_slices() {
+        let mut channel = Channels::new(100, 1024);
+        for slice in channel.iter() {
+            assert_eq!(slice.len(), 1024, "iter returns wrong value");
+        }
+        for slice in channel.iter_mut() {
+            assert_eq!(slice.len(), 1024, "iter_mut returns wrong value");
+        }
+        for i in 0..100 {
+            assert_eq!(
+                channel.get(i).unwrap().len(),
+                1024,
+                "get returns wrong value at {}",
+                i
+            );
+            assert_eq!(
+                channel.get_mut(i).unwrap().len(),
+                1024,
+                "get_mut returns wrong value at {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn channel_index_out_of_range_returns_none() {
+        let mut channels = Channels::new(100, 1024);
+        assert!(channels.get(99).is_some());
+        assert!(channels.get_mut(99).is_some());
+
+        assert!(channels.get(100).is_none());
+        assert!(channels.get_mut(100).is_none());
+
+        assert!(channels.get(1000).is_none());
+        assert!(channels.get_mut(1000).is_none());
+    }
+}

@@ -29,6 +29,8 @@ Below is an example on how to run the mda EPiano plugin.
 use livi;
 
 let mut world = livi::World::new();
+// Running a plugin for less samples than MIN_BLOCK_SIZE or more samples than
+// MAX_BLOCK_SIZE will fail.
 const MIN_BLOCK_SIZE: usize = 1;
 const MAX_BLOCK_SIZE: usize = 256;
 const SAMPLE_RATE: f64 = 44100.0;
@@ -47,31 +49,14 @@ let mut instance = unsafe {
 };
 
 // Where midi events will be read from.
-let input = {
-    let mut s = livi::event::LV2AtomSequence::new(1024);
-    let play_note_data = [0x90, 0x40, 0x7f];
-    s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
-        .unwrap();
-    s
-};
-
-// Where parameters can be set. We initialize to the plugin's default values.
-let params: Vec<f32> = plugin
-    .ports_with_type(livi::PortType::ControlInput)
-    .map(|p| p.default_value)
-    .collect();
-// This is where the audio data will be stored.
-let mut outputs = [
-    vec![0.0; MAX_BLOCK_SIZE], // For mda EPiano, this is the left channel.
-    vec![0.0; MAX_BLOCK_SIZE], // For mda EPiano, this is the right channel.
-];
-
-// Set up the port configuration and run the plugin!
-// The results will be stored in `outputs`.
-let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
-    .with_atom_sequence_inputs(std::iter::once(&input))
-    .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
-    .with_control_inputs(params.iter());
+const ATOM_SEQUENCE_SIZE: usize = 32768;
+// port_data contains all the input and outputs for the plugin. Alternatively,
+// you can create your own buffers and build ports starting with
+// `EmptyPortConnections::new`. See `./examples/livi-jack.rs` for how to buidl
+// ports from your own buffers.
+let mut port_data = plugin.build_port_data(ATOM_SEQUENCE_SIZE)
+    .expect("Could not build port data.");
+let ports = port_data.as_port_connections(MAX_BLOCK_SIZE);
 unsafe { instance.run(ports).unwrap() };
 ```
 
