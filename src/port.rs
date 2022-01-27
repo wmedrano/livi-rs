@@ -177,6 +177,13 @@ impl Channels {
         }
     }
 
+    /// Sets a new buffer size. The contents of the buffers may shift around so
+    /// do not expect the data stored to be valid.
+    pub fn set_buffer_size(&mut self, buffer_size: usize) {
+        self.buffer_size = buffer_size;
+        self.data.resize(self.channels * self.buffer_size, 0.0);
+    }
+
     /// Return the number of channels available.
     pub fn channels(&self) -> usize {
         self.channels
@@ -245,6 +252,13 @@ pub struct PortData {
 }
 
 impl PortData {
+    pub fn set_buffer_size(&mut self, buffer_size: usize) {
+        self.audio_inputs.set_buffer_size(buffer_size);
+        self.audio_outputs.set_buffer_size(buffer_size);
+        self.cv_inputs.set_buffer_size(buffer_size);
+        self.cv_outputs.set_buffer_size(buffer_size);
+    }
+
     pub fn as_port_connections(
         &mut self,
         sample_count: usize,
@@ -559,14 +573,14 @@ mod tests {
 
     #[test]
     fn channel_contains_equally_sized_slices() {
-        let mut channel = Channels::new(100, 1024);
+        let mut channel = Channels::new(10, 1024);
         for slice in channel.iter() {
             assert_eq!(slice.len(), 1024, "iter returns wrong value");
         }
         for slice in channel.iter_mut() {
             assert_eq!(slice.len(), 1024, "iter_mut returns wrong value");
         }
-        for i in 0..100 {
+        for i in 0..10 {
             assert_eq!(
                 channel.get(i).unwrap().len(),
                 1024,
@@ -584,14 +598,32 @@ mod tests {
 
     #[test]
     fn channel_index_out_of_range_returns_none() {
-        let mut channels = Channels::new(100, 1024);
-        assert!(channels.get(99).is_some());
-        assert!(channels.get_mut(99).is_some());
+        let mut channels = Channels::new(10, 1024);
+        assert!(channels.get(9).is_some());
+        assert!(channels.get_mut(9).is_some());
 
-        assert!(channels.get(100).is_none());
-        assert!(channels.get_mut(100).is_none());
+        assert!(channels.get(10).is_none());
+        assert!(channels.get_mut(10).is_none());
 
         assert!(channels.get(1000).is_none());
         assert!(channels.get_mut(1000).is_none());
+    }
+
+    #[test]
+    fn channel_set_buffer_size() {
+        let mut channels = Channels::new(10, 1024);
+        for i in 0..10 {
+            assert_eq!(channels.get(i).unwrap().len(), 1024);
+        }
+
+        channels.set_buffer_size(512);
+        for i in 0..10 {
+            assert_eq!(channels.get(i).unwrap().len(), 512);
+        }
+
+        channels.set_buffer_size(2048);
+        for i in 0..10 {
+            assert_eq!(channels.get(i).unwrap().len(), 2048);
+        }
     }
 }
