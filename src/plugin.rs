@@ -468,4 +468,45 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn build_port_data_has_correct_number_of_ports() {
+        let mut world = crate::World::new();
+        let block_size = 512;
+        world
+            .initialize_block_length(block_size, block_size)
+            .unwrap();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .expect("Plugin not found.");
+        let port_data = plugin.build_port_data(1024).unwrap();
+        // The results below can be verified with: `lv2info http://drobilla.net/plugins/mda/EPiano`
+        assert_eq!(port_data.control_inputs.len(), 12);
+        assert_eq!(port_data.control_outputs.len(), 0);
+        assert_eq!(port_data.audio_inputs.channels(), 0);
+        assert_eq!(port_data.audio_outputs.channels(), 2);
+        assert_eq!(port_data.atom_sequence_inputs.len(), 1);
+        assert_eq!(port_data.atom_sequence_outputs.len(), 0);
+        assert_eq!(port_data.cv_inputs.channels(), 0);
+        assert_eq!(port_data.cv_outputs.channels(), 0);
+    }
+
+    #[test]
+    fn build_port_data_contains_proper_buffer_sizes() {
+        let mut world = crate::World::new();
+        let block_size = 512;
+        world
+            .initialize_block_length(block_size, block_size)
+            .unwrap();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .expect("Plugin not found.");
+        let port_data = plugin.build_port_data(1024).unwrap();
+        for buffer in port_data.audio_outputs.iter() {
+            assert_eq!(buffer.len(), 512);
+        }
+        for sequence in port_data.atom_sequence_outputs.iter() {
+            assert_eq!(sequence.size(), 1024);
+        }
+    }
 }

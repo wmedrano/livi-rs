@@ -197,6 +197,7 @@ impl Channels {
         self.data.chunks_exact_mut(self.buffer_size)
     }
 
+    /// Get a single channel or `None` if the index is out of range.
     pub fn get(&self, channel_index: usize) -> Option<&[f32]> {
         let start = channel_index * self.buffer_size;
         let end = start + self.buffer_size;
@@ -207,6 +208,7 @@ impl Channels {
         }
     }
 
+    /// Get a single mutable channel or `None` if the index is out of range.
     pub fn get_mut(&mut self, channel_index: usize) -> Option<&mut [f32]> {
         let start = channel_index * self.buffer_size;
         let end = start + self.buffer_size;

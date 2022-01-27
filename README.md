@@ -48,8 +48,8 @@ let mut instance = unsafe {
         .expect("Could not instantiate plugin.")
 };
 
-// Where midi events will be read from.
-const ATOM_SEQUENCE_SIZE: usize = 32768;
+// The size of the events buffer. This is where midi is read from.
+const ATOM_SEQUENCE_SIZE: usize = 32768; // 32KiB
 // port_data contains all the input and outputs for the plugin. Alternatively,
 // you can create your own buffers and build ports starting with
 // `EmptyPortConnections::new`. See `./examples/livi-jack.rs` for how to buidl
