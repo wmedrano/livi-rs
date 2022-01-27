@@ -348,4 +348,59 @@ mod tests {
                 .supported_features()
         );
     }
+
+    #[test]
+    fn test_run_all_plugins() {
+        let mut world = crate::World::new();
+        let block_size = 1000;
+        world
+            .initialize_block_length(block_size / 2, block_size * 2)
+            .unwrap();
+        let unsupported: HashSet<&'static str> = vec![
+            // The below produce: [ERR] Tried to serialize invalid MIDI event.
+            "http://lsp-plug.in/plugins/lv2/multisampler_x12",
+            "http://lsp-plug.in/plugins/lv2/multisampler_x12_do",
+            "http://lsp-plug.in/plugins/lv2/multisampler_x24",
+            "http://lsp-plug.in/plugins/lv2/multisampler_x24_do",
+            "http://lsp-plug.in/plugins/lv2/multisampler_x48",
+            "http://lsp-plug.in/plugins/lv2/multisampler_x48_do",
+            "http://lsp-plug.in/plugins/lv2/trigger_midi_mono",
+            "http://lsp-plug.in/plugins/lv2/trigger_midi_stereo",
+            "http://lsp-plug.in/plugins/lv2/sampler_mono",
+            "http://lsp-plug.in/plugins/lv2/sampler_stereo",
+        ]
+        .drain(..)
+        .collect();
+        for plugin in world.iter_plugins() {
+            if unsupported.contains(plugin.uri().as_str()) {
+                continue;
+            }
+            // See this output with: `cargo test -- --nocapture`
+            println!("Testing {}.", plugin.uri());
+            let mut port_data = plugin.build_port_data(1_000_000).unwrap();
+            let mut instance = unsafe {
+                plugin
+                    .instantiate(44100.0)
+                    .expect("Could not instantiate plugin.")
+            };
+            for _ in 0..10 {
+                for sequence_input in port_data.atom_sequence_inputs.iter_mut() {
+                    sequence_input.clear();
+                    // Note on
+                    sequence_input
+                        .push_midi_event::<3>(0, world.midi_urid(), &[0x94, 64, 100])
+                        .unwrap();
+                    // Note off
+                    sequence_input
+                        .push_midi_event::<3>(0, world.midi_urid(), &[0x94, 64, 0])
+                        .unwrap();
+                }
+                for sequence_output in port_data.atom_sequence_outputs.iter_mut() {
+                    sequence_output.clear();
+                }
+                let ports = port_data.as_port_connections(block_size);
+                unsafe { instance.run(ports).unwrap() };
+            }
+        }
+    }
 }

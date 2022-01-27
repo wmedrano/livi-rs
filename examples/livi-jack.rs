@@ -79,12 +79,22 @@ impl Processor {
             .collect();
         let control_inputs: Vec<f32> = plugin
             .ports_with_type(livi::PortType::ControlInput)
-            .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
+            .inspect(|p| {
+                info!(
+                    "Control Input Using {:?}{} = {}",
+                    p.port_type, p.name, p.default_value
+                )
+            })
             .map(|p| p.default_value)
             .collect();
         let control_outputs: Vec<f32> = plugin
             .ports_with_type(livi::PortType::ControlOutput)
-            .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
+            .inspect(|p| {
+                info!(
+                    "Control Output Using {:?}{} = {}",
+                    p.port_type, p.name, p.default_value
+                )
+            })
             .map(|p| p.default_value)
             .collect();
         const EVENT_BUFFER_SIZE: usize = 262_144; // ~262KiB
