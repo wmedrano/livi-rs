@@ -80,30 +80,6 @@ pub(crate) fn instantiate_queue() -> (WorkerMessageSender, WorkerMessageReceiver
     (sender, receiver)
 }
 
-fn do_work(
-    worker_interface: &mut lv2_sys::LV2_Worker_Interface,
-    receiver: &mut WorkerMessageReceiver,
-    handle: lv2_sys::LV2_Handle,
-    sender: &mut WorkerMessageSender,
-) {
-    while receiver.len() > size_of::<usize>() {
-        let mut message = pop_message(receiver);
-        if let Some(work_function) = worker_interface.work {
-            let sender = sender as *mut WorkerMessageSender as *mut c_void;
-            let body = message.data();
-            unsafe {
-                work_function(
-                    handle,
-                    Some(worker_respond),
-                    sender,
-                    message.size as u32,
-                    body,
-                )
-            };
-        }
-    }
-}
-
 /// A plugin instance delegates non-realtime-safe
 /// work to a Worker, which performs the work
 /// asynchronously in another thread before
@@ -119,6 +95,7 @@ fn do_work(
 /// I need to learn more about rust lifetimes to see how we can
 /// make the worker safer to use.
 pub struct Worker {
+    plugin_is_alive: std::sync::Arc<std::sync::Mutex<bool>>,
     interface: lv2_sys::LV2_Worker_Interface,
     instance_handle: lv2_sys::LV2_Handle,
     receiver: WorkerMessageReceiver, // Where we find work to do
@@ -127,12 +104,14 @@ pub struct Worker {
 
 impl Worker {
     pub fn new(
+        plugin_is_alive: std::sync::Arc<std::sync::Mutex<bool>>,
         interface: lv2_sys::LV2_Worker_Interface,
         instance_handle: lv2_sys::LV2_Handle,
         receiver: WorkerMessageReceiver,
         sender: WorkerMessageSender,
     ) -> Self {
         Worker {
+            plugin_is_alive,
             interface,
             instance_handle,
             receiver,
@@ -144,12 +123,29 @@ impl Worker {
     /// to do non-realtime work and send
     /// the results back to the realtime thread.
     pub fn do_work(&mut self) {
-        do_work(
-            &mut self.interface,
-            &mut self.receiver,
-            self.instance_handle,
-            &mut self.sender,
-        );
+        let plugin_is_alive = self.plugin_is_alive.lock().unwrap();
+        while *plugin_is_alive && self.receiver.len() > size_of::<usize>() {
+            let mut message = pop_message(&mut self.receiver);
+            if let Some(work_function) = self.interface.work {
+                let sender = &mut self.sender as *mut WorkerMessageSender as *mut c_void;
+                unsafe {
+                    work_function(
+                        self.instance_handle,
+                        Some(worker_respond),
+                        sender,
+                        message.size as u32,
+                        message.data(),
+                    )
+                };
+            }
+        }
+    }
+
+    /// Keep the worker working as long as this
+    /// remains true. Once this returns false,
+    /// you can drop the worker.
+    pub fn should_keep_working(&self) -> bool {
+        *self.plugin_is_alive.lock().unwrap()
     }
 }
 
@@ -157,12 +153,12 @@ pub(crate) unsafe fn maybe_get_worker_interface(
     instance: &mut lilv::instance::ActiveInstance,
 ) -> Option<lv2_sys::LV2_Worker_Interface> {
     Some(
-        *(instance
+        *instance
             .instance()
             .extension_data::<lv2_sys::LV2_Worker_Interface>(
                 std::str::from_utf8(lv2_sys::LV2_WORKER__interface).unwrap(),
             )?
-            .as_ptr()),
+            .as_ref(),
     )
 }
 
@@ -176,8 +172,7 @@ pub(crate) fn handle_work_responses(
     while receiver.len() > size_of::<usize>() {
         let mut message = pop_message(receiver);
         if let Some(work_response_function) = worker_interface.work_response {
-            let body_ptr = message.data();
-            unsafe { work_response_function(handle, message.size as u32, body_ptr) };
+            unsafe { work_response_function(handle, message.size as u32, message.data()) };
         }
     }
 }
@@ -191,6 +186,25 @@ pub(crate) fn end_run(
 ) {
     if let Some(end_function) = worker_interface.end_run {
         unsafe { end_function(handle) };
+    }
+}
+
+pub struct WorkerManager {
+    workers: std::vec::Vec<Worker>,
+}
+
+impl WorkerManager {
+    pub fn new() -> Self {
+        WorkerManager { workers: vec![] }
+    }
+
+    pub fn add_worker(&mut self, worker: Worker) {
+        self.workers.push(worker);
+    }
+
+    pub fn run_workers(&mut self) {
+        self.workers.iter_mut().for_each(|worker| worker.do_work());
+        self.workers.retain(|worker| worker.should_keep_working());
     }
 }
 

@@ -1,7 +1,7 @@
 use core::ffi::c_void;
 use std::boxed::Box;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     error::{InstantiateError, RunError},
@@ -100,8 +100,10 @@ impl Plugin {
 
         let worker_interface = worker::maybe_get_worker_interface(&mut inner);
 
+        let is_alive = Arc::new(Mutex::new(true));
         let worker = worker_interface.map(|interface| {
             worker::Worker::new(
+                is_alive.clone(),
                 interface,
                 inner.instance().handle(),
                 instance_to_worker_receiver,
@@ -146,6 +148,7 @@ impl Plugin {
             worker_to_instance_receiver,
             _worker_schedule: worker_schedule,
             _instance_to_worker_sender: instance_to_worker_sender,
+            is_alive,
         })
     }
 
@@ -204,7 +207,10 @@ pub struct Instance {
     worker_to_instance_receiver: worker::WorkerMessageReceiver,
     _worker_schedule: Box<lv2_sys::LV2_Worker_Schedule>,
     _instance_to_worker_sender: Box<worker::WorkerMessageSender>,
+    is_alive: Arc<Mutex<bool>>,
 }
+
+unsafe impl Send for Instance {}
 
 impl Instance {
     /// Run the plugin for a given number of samples.
@@ -414,6 +420,13 @@ impl Instance {
     /// thread and hold onto it to perform work asynchronously.
     pub fn get_worker(&mut self) -> Option<worker::Worker> {
         self.worker.take()
+    }
+}
+
+impl Drop for Instance {
+    fn drop(&mut self) {
+        let mut is_alive = self.is_alive.lock().unwrap();
+        *is_alive = false;
     }
 }
 
