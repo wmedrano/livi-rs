@@ -41,7 +41,7 @@ use log::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 
 pub use plugin::{Instance, Plugin};
-pub use port::{EmptyPortConnections, Port, PortConnections, PortIndex, PortType};
+pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
 
 /// Contains all the error types for the `livi` crate.
 pub mod error;
@@ -53,8 +53,8 @@ mod port;
 
 /// Contains all plugins.
 pub struct World {
-    plugins: Vec<lilv::plugin::Plugin>,
     resources: Arc<Resources>,
+    livi_plugins: Vec<Plugin>,
 }
 
 impl World {
@@ -83,7 +83,7 @@ impl World {
             "Creating World with supported features {:?}",
             supported_features
         );
-        let plugins = world
+        let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
             .filter(|p| {
@@ -144,16 +144,20 @@ impl World {
                 }
                 true
             })
+            .map(|p| Plugin::from_raw(p, resources.clone()))
             .filter(|p| {
-                let keep = predicate(&Plugin{ inner: p.clone(), resources: resources.clone()});
+                let keep = predicate(p);
                 if !keep {
-                    debug!("Ignoring plugin {} due to predicate.", p.uri().as_str().unwrap_or("BAD_URI"));
+                    debug!("Ignoring plugin {} due to predicate.", p.uri());
                 }
                 keep
             })
-            .inspect(|p| info!("Found plugin {}: {}", p.name().as_str().unwrap_or("BAD_NAME"), p.uri().as_str().unwrap_or("BAD_URI")))
+            .inspect(|p| info!("Found plugin {}: {}", p.name(), p.uri()))
             .collect();
-        World { plugins, resources }
+        World {
+            resources,
+            livi_plugins: plugins,
+        }
     }
 
     /// Get the URID of a URI. This value is only guaranteed to be valid for
@@ -182,22 +186,13 @@ impl World {
 
     /// Iterate through all plugins.
     pub fn iter_plugins(&self) -> impl '_ + ExactSizeIterator + Iterator<Item = Plugin> {
-        self.plugins.iter().map(move |p| Plugin {
-            inner: p.clone(),
-            resources: self.resources.clone(),
-        })
+        self.livi_plugins.iter().cloned()
     }
 
     /// Return the plugin given a URI or `None` if it does not exist.
     #[must_use]
     pub fn plugin_by_uri(&self, uri: &str) -> Option<Plugin> {
-        self.plugins
-            .iter()
-            .find(|p| p.uri().as_str() == Some(uri))
-            .map(|p| Plugin {
-                inner: p.clone(),
-                resources: self.resources.clone(),
-            })
+        self.iter_plugins().find(|p| p.uri() == uri)
     }
 
     /// Initialize the block length. This is the minimum and maximum number of
@@ -279,11 +274,37 @@ mod tests {
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
+        assert_eq!(
+            *plugin.port_counts(),
+            PortCounts {
+                control_inputs: 12,
+                control_outputs: 0,
+                audio_inputs: 0,
+                audio_outputs: 2,
+                atom_sequence_inputs: 1,
+                atom_sequence_outputs: 0,
+                cv_inputs: 0,
+                cv_outputs: 0,
+            }
+        );
         let mut instance = unsafe {
             plugin
                 .instantiate(SAMPLE_RATE)
                 .expect("Could not instantiate plugin.")
         };
+        assert_eq!(
+            instance.port_counts(),
+            PortCounts {
+                control_inputs: 12,
+                control_outputs: 0,
+                audio_inputs: 0,
+                audio_outputs: 2,
+                atom_sequence_inputs: 1,
+                atom_sequence_outputs: 0,
+                cv_inputs: 0,
+                cv_outputs: 0,
+            }
+        );
         let input = {
             let mut s = LV2AtomSequence::new(1024);
             let play_note_data = [0x90, 0x40, 0x7f];

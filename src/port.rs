@@ -59,6 +59,10 @@ pub enum PortType {
     CVOutput,
 }
 
+/// The index of the port within a plugin.
+#[derive(Copy, Clone, Debug)]
+pub struct PortIndex(pub usize);
+
 /// A port represents a connection (either input or output) to a plugin.
 #[derive(Clone, Debug)]
 pub struct Port {
@@ -435,6 +439,15 @@ where
     }
 }
 
-/// The index of the port within a plugin.
-#[derive(Copy, Clone, Debug)]
-pub struct PortIndex(pub usize);
+/// The number of ports by type.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct PortCounts {
+    pub control_inputs: usize,
+    pub control_outputs: usize,
+    pub audio_inputs: usize,
+    pub audio_outputs: usize,
+    pub atom_sequence_inputs: usize,
+    pub atom_sequence_outputs: usize,
+    pub cv_inputs: usize,
+    pub cv_outputs: usize,
+}

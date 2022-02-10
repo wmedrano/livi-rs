@@ -20,5 +20,5 @@ lv2_raw = "0.2"
 
 [dev-dependencies]
 env_logger = "0.9"
-jack = "0.8"
+jack = "0.9"
 structopt = "0.3"
