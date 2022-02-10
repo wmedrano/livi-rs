@@ -5,7 +5,7 @@ use crate::{
     error::{InstantiateError, RunError},
     event::LV2AtomSequence,
     port::{DataType, IOType},
-    Port, PortConnections, PortIndex, PortType, Resources,
+    Port, PortConnections, PortCounts, PortIndex, PortType, Resources,
 };
 
 /// A plugin that can be used to instantiate plugin instances.
@@ -13,9 +13,31 @@ use crate::{
 pub struct Plugin {
     pub(crate) inner: lilv::plugin::Plugin,
     pub(crate) resources: Arc<Resources>,
+    port_counts: PortCounts,
 }
 
 impl Plugin {
+    pub(crate) fn from_raw(plugin: lilv::plugin::Plugin, resources: Arc<Resources>) -> Plugin {
+        let mut port_counts = PortCounts::default();
+        for port in iter_ports_impl(&plugin, &resources) {
+            match port.port_type {
+                PortType::ControlInput => port_counts.control_inputs += 1,
+                PortType::ControlOutput => port_counts.control_outputs += 1,
+                PortType::AudioInput => port_counts.audio_inputs += 1,
+                PortType::AudioOutput => port_counts.audio_outputs += 1,
+                PortType::AtomSequenceInput => port_counts.atom_sequence_inputs += 1,
+                PortType::AtomSequenceOutput => port_counts.atom_sequence_outputs += 1,
+                PortType::CVInput => port_counts.cv_inputs += 1,
+                PortType::CVOutput => port_counts.cv_outputs += 1,
+            }
+        }
+        Plugin {
+            inner: plugin,
+            resources,
+            port_counts,
+        }
+    }
+
     /// A unique identifier for the plugin.
     #[must_use]
     pub fn uri(&self) -> String {
@@ -82,50 +104,12 @@ impl Plugin {
 
     /// Iterate over all ports for the plugin.
     pub fn ports(&self) -> impl '_ + Iterator<Item = Port> {
-        self.inner.iter_ports().map(move |p| {
-            let io_type = if p.is_a(&self.resources.input_port_uri) {
-                IOType::Input
-            } else if p.is_a(&self.resources.output_port_uri) {
-                IOType::Output
-            } else {
-                unreachable!("Port is neither input or output.")
-            };
-            let data_type = if p.is_a(&self.resources.audio_port_uri) {
-                DataType::Audio
-            } else if p.is_a(&self.resources.control_port_uri) {
-                DataType::Control
-            } else if p.is_a(&self.resources.atom_port_uri) {
-                DataType::AtomSequence
-            } else if p.is_a(&self.resources.cv_port_uri) {
-                DataType::CV
-            } else {
-                unreachable!("Port is not an audio, control, or atom sequence port.")
-            };
-            let port_type = match (io_type, data_type) {
-                (IOType::Input, DataType::Control) => PortType::ControlInput,
-                (IOType::Output, DataType::Control) => PortType::ControlOutput,
-                (IOType::Input, DataType::Audio) => PortType::AudioInput,
-                (IOType::Output, DataType::Audio) => PortType::AudioOutput,
-                (IOType::Input, DataType::AtomSequence) => PortType::AtomSequenceInput,
-                (IOType::Output, DataType::AtomSequence) => PortType::AtomSequenceOutput,
-                (IOType::Input, DataType::CV) => PortType::CVInput,
-                (IOType::Output, DataType::CV) => PortType::CVOutput,
-            };
-            Port {
-                port_type,
-                name: p
-                    .name()
-                    .expect("port has no name")
-                    .as_str()
-                    .unwrap_or("BAD_NAME")
-                    .to_string(),
-                default_value: p
-                    .range()
-                    .default
-                    .map_or(0.0, |n| n.as_float().unwrap_or(0.0)),
-                index: PortIndex(p.index()),
-            }
-        })
+        iter_ports_impl(&self.inner, &self.resources)
+    }
+
+    /// Get the number of ports for each type of port.
+    pub fn port_counts(&self) -> &PortCounts {
+        &self.port_counts
     }
 
     /// Return all ports with the given type.
@@ -140,6 +124,7 @@ impl Debug for Plugin {
         f.debug_struct("Plugin")
             .field("uri", &self.uri())
             .field("name", &self.name())
+            .field("port_counts", &self.port_counts)
             .field("ports", &ports)
             .finish()
     }
@@ -316,6 +301,84 @@ impl Instance {
         self.inner.run(ports.sample_count);
         Ok(())
     }
+
+    /// Get the number of ports for a specific type of port.
+    pub fn port_counts_for_type(&self, t: PortType) -> usize {
+        match t {
+            PortType::ControlInput => self.control_inputs.len(),
+            PortType::ControlOutput => self.control_outputs.len(),
+            PortType::AudioInput => self.audio_inputs.len(),
+            PortType::AudioOutput => self.audio_outputs.len(),
+            PortType::AtomSequenceInput => self.atom_sequence_inputs.len(),
+            PortType::AtomSequenceOutput => self.atom_sequence_outputs.len(),
+            PortType::CVInput => self.cv_inputs.len(),
+            PortType::CVOutput => self.cv_outputs.len(),
+        }
+    }
+
+    /// Get the number of ports for each type of port.
+    pub fn port_counts(&self) -> PortCounts {
+        PortCounts {
+            control_inputs: self.port_counts_for_type(PortType::ControlInput),
+            control_outputs: self.port_counts_for_type(PortType::ControlOutput),
+            audio_inputs: self.port_counts_for_type(PortType::AudioInput),
+            audio_outputs: self.port_counts_for_type(PortType::AudioOutput),
+            atom_sequence_inputs: self.port_counts_for_type(PortType::AtomSequenceInput),
+            atom_sequence_outputs: self.port_counts_for_type(PortType::AtomSequenceOutput),
+            cv_inputs: self.port_counts_for_type(PortType::CVInput),
+            cv_outputs: self.port_counts_for_type(PortType::CVOutput),
+        }
+    }
+}
+
+fn iter_ports_impl<'a>(
+    plugin: &'a lilv::plugin::Plugin,
+    resources: &'a Resources,
+) -> impl 'a + Iterator<Item = Port> {
+    plugin.iter_ports().map(move |p| {
+        let io_type = if p.is_a(&resources.input_port_uri) {
+            IOType::Input
+        } else if p.is_a(&resources.output_port_uri) {
+            IOType::Output
+        } else {
+            unreachable!("Port is neither input or output.")
+        };
+        let data_type = if p.is_a(&resources.audio_port_uri) {
+            DataType::Audio
+        } else if p.is_a(&resources.control_port_uri) {
+            DataType::Control
+        } else if p.is_a(&resources.atom_port_uri) {
+            DataType::AtomSequence
+        } else if p.is_a(&resources.cv_port_uri) {
+            DataType::CV
+        } else {
+            unreachable!("Port is not an audio, control, or atom sequence port.")
+        };
+        let port_type = match (io_type, data_type) {
+            (IOType::Input, DataType::Control) => PortType::ControlInput,
+            (IOType::Output, DataType::Control) => PortType::ControlOutput,
+            (IOType::Input, DataType::Audio) => PortType::AudioInput,
+            (IOType::Output, DataType::Audio) => PortType::AudioOutput,
+            (IOType::Input, DataType::AtomSequence) => PortType::AtomSequenceInput,
+            (IOType::Output, DataType::AtomSequence) => PortType::AtomSequenceOutput,
+            (IOType::Input, DataType::CV) => PortType::CVInput,
+            (IOType::Output, DataType::CV) => PortType::CVOutput,
+        };
+        Port {
+            port_type,
+            name: p
+                .name()
+                .expect("port has no name")
+                .as_str()
+                .unwrap_or("BAD_NAME")
+                .to_string(),
+            default_value: p
+                .range()
+                .default
+                .map_or(0.0, |n| n.as_float().unwrap_or(0.0)),
+            index: PortIndex(p.index()),
+        }
+    })
 }
 
 #[cfg(test)]
