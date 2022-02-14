@@ -2,6 +2,7 @@ use core::ffi::c_void;
 use ringbuf::{Consumer, Producer, RingBuffer};
 use std::mem::size_of;
 use std::slice;
+use std::sync::{Arc, Mutex};
 
 pub(crate) type WorkerMessageSender = Producer<u8>;
 pub(crate) type WorkerMessageReceiver = Consumer<u8>;
@@ -16,10 +17,6 @@ struct WorkerMessage {
 }
 
 impl WorkerMessage {
-    fn get_actual_size(&self) -> usize {
-        size_of::<Self>() - MAX_MESSAGE_SIZE + self.size
-    }
-
     fn data(&mut self) -> *mut c_void {
         &mut self.body as *mut MessageBody as *mut c_void
     }
@@ -90,12 +87,8 @@ pub(crate) fn instantiate_queue() -> (WorkerMessageSender, WorkerMessageReceiver
 /// periodically and that's it. Currently there's no method
 /// to "wait" on work and only perform work when messages arrive,
 /// you have to keep calling do_work while the plugin is alive.
-///
-/// The worker must be dropped before dropping the plugin instance.
-/// I need to learn more about rust lifetimes to see how we can
-/// make the worker safer to use.
 pub struct Worker {
-    plugin_is_alive: std::sync::Arc<std::sync::Mutex<bool>>,
+    plugin_is_alive: Arc<Mutex<bool>>,
     interface: lv2_sys::LV2_Worker_Interface,
     instance_handle: lv2_sys::LV2_Handle,
     receiver: WorkerMessageReceiver, // Where we find work to do
@@ -103,8 +96,8 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn new(
-        plugin_is_alive: std::sync::Arc<std::sync::Mutex<bool>>,
+    pub(crate) fn new(
+        plugin_is_alive: Arc<Mutex<bool>>,
         interface: lv2_sys::LV2_Worker_Interface,
         instance_handle: lv2_sys::LV2_Handle,
         receiver: WorkerMessageReceiver,
@@ -119,7 +112,7 @@ impl Worker {
         }
     }
 
-    /// Run this in a NON-real-time thread
+    /// Run this in a non-realtime thread
     /// to do non-realtime work and send
     /// the results back to the realtime thread.
     pub fn do_work(&mut self) {
@@ -189,15 +182,45 @@ pub(crate) fn end_run(
     }
 }
 
+/// Use a WorkerManager to own and run
+/// Workers. The WorkerManager will drop
+/// workers automatically once their associated
+/// plugin Instance has been dropped.
+///
+/// #### Example usage:
+/// ```
+/// # use livi;
+///
+/// # let mut world = livi::World::new();
+/// # const MIN_BLOCK_SIZE: usize = 1;
+/// # const MAX_BLOCK_SIZE: usize = 256;
+/// # const SAMPLE_RATE: f64 = 44100.0;
+/// # world
+/// #     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
+/// #     .unwrap();
+/// # let plugin = world
+/// #     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+/// #     .expect("Plugin not found.");
+/// let mut instance = unsafe {
+///     plugin
+///         .instantiate(SAMPLE_RATE)
+///         .expect("Could not instantiate plugin.")
+/// };
+///
+/// let mut worker_manager = livi::WorkerManager::default();
+/// if let Some(worker) = instance.get_worker() {
+///     worker_manager.add_worker(worker);
+/// }
+///
+/// // Call this periodically to drive workers.
+/// worker_manager.run_workers();
+/// ```
+#[derive(Default)]
 pub struct WorkerManager {
     workers: std::vec::Vec<Worker>,
 }
 
 impl WorkerManager {
-    pub fn new() -> Self {
-        WorkerManager { workers: vec![] }
-    }
-
     pub fn add_worker(&mut self, worker: Worker) {
         self.workers.push(worker);
     }
@@ -214,19 +237,8 @@ mod tests {
     use std::str;
 
     #[test]
-    fn test_get_actual_size() {
-        let message = WorkerMessage {
-            size: 100,
-            body: [0; MAX_MESSAGE_SIZE],
-        };
-        let expected_size = 100 + size_of::<usize>();
-        assert_eq!(message.get_actual_size(), expected_size);
-    }
-
-    #[test]
     fn test_send() {
-        let ringbuffer = RingBuffer::<u8>::new(8192);
-        let (mut sender, mut receiver) = ringbuffer.split();
+        let (mut sender, mut receiver) = instantiate_queue();
         let sentence_to_transfer = String::from("This is a message for you");
         let mut data = sentence_to_transfer.clone().into_bytes();
         publish_message(&mut sender, data.len(), data.as_mut_ptr());

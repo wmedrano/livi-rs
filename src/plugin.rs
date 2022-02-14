@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use crate::{
     error::{InstantiateError, RunError},
     event::LV2AtomSequence,
-    features::worker,
+    features::{worker, BOUNDED_BLOCK_LENGTH},
     port::{DataType, IOType},
     Port, PortConnections, PortCounts, PortIndex, PortType, Resources,
 };
@@ -87,8 +87,10 @@ impl Plugin {
         };
         let worker_schedule = Box::from_raw(worker_schedule);
 
-        let features = features
-            .iter_features()
+        let features = std::iter::once(features.urid_map.as_urid_map_feature())
+            .chain(std::iter::once(features.urid_map.as_urid_unmap_feature()))
+            .chain(std::iter::once(features.options.as_feature()))
+            .chain(std::iter::once(&BOUNDED_BLOCK_LENGTH))
             .chain(std::iter::once(&worker_feature));
 
         let instance = self
@@ -414,11 +416,11 @@ impl Instance {
         }
     }
 
-    /// Returns (transferring ownership of) the worker
-    /// for this plugin instance. There is only one worker
-    /// and you can only retrieve it once. Grab the worker
-    /// before you send the plugin instance to the realtime
-    /// thread and hold onto it to perform work asynchronously.
+    /// Returns this instance's worker. There is only
+    /// one worker and you can only retrieve it once.
+    /// Grab the worker before you send the plugin
+    /// instance to the realtime thread and hold
+    /// onto it to perform work asynchronously.
     pub fn get_worker(&mut self) -> Option<worker::Worker> {
         self.worker.take()
     }

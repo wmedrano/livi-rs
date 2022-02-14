@@ -40,6 +40,7 @@ use crate::features::Features;
 use log::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 
+pub use features::worker::{Worker, WorkerManager};
 pub use plugin::{Instance, Plugin};
 pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
 
@@ -498,23 +499,22 @@ mod tests {
 
     #[test]
     fn test_supported_features() {
-        let want: HashSet<String> = [
+        let supported_features = World::new()
+            .resources
+            .features
+            .lock()
+            .unwrap()
+            .supported_features();
+
+        assert!(supported_features.contains("http://lv2plug.in/ns/ext/urid#map"));
+
+        let want = HashSet::from([
             "http://lv2plug.in/ns/ext/urid#map",
             "http://lv2plug.in/ns/ext/urid#unmap",
             "http://lv2plug.in/ns/ext/options#options",
             "http://lv2plug.in/ns/ext/buf-size#boundedBlockLength",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        assert_eq!(
-            want,
-            World::new()
-                .resources
-                .features
-                .lock()
-                .unwrap()
-                .supported_features()
-        );
+            "http://lv2plug.in/ns/ext/worker#schedule",
+        ]);
+        assert_eq!(want, supported_features);
     }
 }
