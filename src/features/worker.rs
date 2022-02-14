@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 pub(crate) type WorkerMessageSender = Producer<u8>;
 pub(crate) type WorkerMessageReceiver = Consumer<u8>;
 
-const MAX_MESSAGE_SIZE: usize = 512;
+const MAX_MESSAGE_SIZE: usize = 8192;
+const N_MESSAGES: usize = 4;
+
 type MessageBody = [u8; MAX_MESSAGE_SIZE];
 
 #[derive(Debug)]
@@ -20,6 +22,11 @@ impl WorkerMessage {
     fn data(&mut self) -> *mut c_void {
         &mut self.body as *mut MessageBody as *mut c_void
     }
+}
+
+pub(crate) fn instantiate_queue() -> (WorkerMessageSender, WorkerMessageReceiver) {
+    let (sender, receiver) = RingBuffer::<u8>::new(MAX_MESSAGE_SIZE * N_MESSAGES).split();
+    (sender, receiver)
 }
 
 fn publish_message(
@@ -70,11 +77,6 @@ extern "C" fn worker_respond(
 ) -> lv2_sys::LV2_Worker_Status {
     let sender = unsafe { &mut *(handle as *mut WorkerMessageSender) };
     publish_message(sender, size as usize, body as *mut u8)
-}
-
-pub(crate) fn instantiate_queue() -> (WorkerMessageSender, WorkerMessageReceiver) {
-    let (sender, receiver) = RingBuffer::<u8>::new(8192).split();
-    (sender, receiver)
 }
 
 /// A plugin instance delegates non-realtime-safe
