@@ -38,6 +38,14 @@ pub enum EventError {
 /// An error associated with running a plugin.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RunError {
+    /// The sample count is smaller than the minimum that is allowed. The
+    /// supported size is set when initializing the `livi::World` object.
+    SampleCountTooSmall { min_supported: usize, actual: usize },
+
+    /// The sample count is larger than the maximum that is allowed. The
+    /// supported size is set when initializing the `livi::World` object.
+    SampleCountTooLarge { max_supported: usize, actual: usize },
+
     /// The number of control inputs was different than what the plugin
     /// required.
     ControlInputsSizeMismatch { expected: usize, actual: usize },
