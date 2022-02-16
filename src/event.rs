@@ -96,8 +96,6 @@ pub struct LV2AtomSequence {
     buffer: Vec<u8>,
 }
 
-const MINIMUM_ATOM_SEQUENCE_SIZE: usize = std::mem::size_of::<lv2_raw::LV2AtomSequence>();
-
 impl LV2AtomSequence {
     /// Create a new sequence with a capacity to hold `capacity` bytes.
     ///
@@ -119,7 +117,7 @@ impl LV2AtomSequence {
                 std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Chunk\0")
                     .unwrap(),
             ),
-            buffer: vec![0; capacity.max(MINIMUM_ATOM_SEQUENCE_SIZE)],
+            buffer: vec![0; capacity + std::mem::size_of::<lv2_raw::LV2AtomSequence>()],
         };
         seq.clear();
         seq
@@ -155,14 +153,13 @@ impl LV2AtomSequence {
     ) -> Result<(), EventError> {
         let event_size =
             std::mem::size_of::<lv2_raw::LV2AtomEvent>() as u32 + event.event.body.size;
-        let capacity = self.capacity() as u32;
         let sequence = unsafe { &mut *self.as_mut_ptr() };
         // This size includes the atom sequence header.
         let current_sequence_size =
             std::mem::size_of_val(&sequence.atom) as u32 + sequence.atom.size;
-        if capacity < current_sequence_size + event_size {
+        if (self.buffer.len() as u32) < current_sequence_size + event_size {
             return Err(EventError::SequenceFull {
-                capacity: capacity as usize,
+                capacity: self.capacity() as usize,
                 requested: (current_sequence_size + event_size) as usize,
             });
         }
@@ -324,37 +321,43 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_sequence_push_events_fails_after_reaching_capacity() {
-    //     // Keep it aligned to 8 bytes to prevent wasting capacity due to
-    //     // padding.
-    //     let event_data = [0; 8];
-    //     let base_size = MINIMUM_ATOM_SEQUENCE_SIZE;
-    //     let event_size = std::mem::size_of::<lv2_raw::LV2AtomEvent>() + event_data.len();
-    //     let event = LV2AtomEventBuilder::new_full(0, 0, event_data);
+    #[test]
+    fn test_sequence_push_events_fails_after_reaching_capacity() {
+        // Keep it aligned to 8 bytes to prevent wasting capacity due to
+        // padding.
+        let event_data = [0; 8];
+        let event_size = std::mem::size_of::<lv2_raw::LV2AtomEvent>() + event_data.len();
+        assert_eq!(event_size, 24);
+        let event = LV2AtomEventBuilder::new_full(0, 0, event_data);
 
-    //     let events_to_push = 1_000;
-    //     let capacity = base_size + (events_to_push * event_size);
-    //     let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
-    //     for _ in 0..events_to_push {
-    //         sequence.push_event(&event).unwrap();
-    //     }
+        let events_to_push = 1_000;
+        let capacity = events_to_push * event_size;
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
+        for _ in 0..events_to_push {
+            sequence.push_event(&event).unwrap();
+        }
 
-    //     assert_eq!(
-    //         sequence.push_event(&event).err(),
-    //         Some(EventError::SequenceFull {
-    //             capacity,
-    //             requested: capacity + event_size,
-    //         })
-    //     );
-    // }
+        assert_eq!(
+            sequence.push_event(&event).err(),
+            Some(EventError::SequenceFull {
+                capacity,
+                requested: 24040,
+            })
+        );
+    }
 
     #[test]
-    fn test_sequence_push_event_is_stable() {
-        let event = LV2AtomEventBuilder::new_full(0, 0, [10]);
-        for capacity in 0..10000 {
-            let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
-            while sequence.push_event(&event).is_ok() {}
+    fn test_sequence_iter_is_stable() {
+        let data = [0; 32];
+        for data_size in 0..32 {
+            let event = LV2AtomEventBuilder::<32>::new(0, 0, &data[..data_size]).unwrap();
+            for capacity in 0..1024 {
+                let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
+                while sequence.push_event(&event).is_ok() {}
+                for event in sequence.iter() {
+                    assert_eq!(event.data, &data[..data_size]);
+                }
+            }
         }
     }
 }
