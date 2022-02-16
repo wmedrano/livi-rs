@@ -324,36 +324,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_sequence_push_events_fails_after_reaching_capacity() {
-        // Keep it aligned to 8 bytes to prevent wasting capacity due to
-        // padding.
-        let event_data = [0; 8];
-        let base_size = MINIMUM_ATOM_SEQUENCE_SIZE;
-        let event_size = std::mem::size_of::<lv2_raw::LV2AtomEvent>() + event_data.len();
-        let event = LV2AtomEventBuilder::new_full(0, 0, event_data);
+    // #[test]
+    // fn test_sequence_push_events_fails_after_reaching_capacity() {
+    //     // Keep it aligned to 8 bytes to prevent wasting capacity due to
+    //     // padding.
+    //     let event_data = [0; 8];
+    //     let base_size = MINIMUM_ATOM_SEQUENCE_SIZE;
+    //     let event_size = std::mem::size_of::<lv2_raw::LV2AtomEvent>() + event_data.len();
+    //     let event = LV2AtomEventBuilder::new_full(0, 0, event_data);
 
-        let events_to_push = 1_000;
-        let capacity = base_size + (events_to_push * event_size);
-        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
-        for _ in 0..events_to_push {
-            sequence.push_event(&event).unwrap();
-        }
+    //     let events_to_push = 1_000;
+    //     let capacity = base_size + (events_to_push * event_size);
+    //     let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
+    //     for _ in 0..events_to_push {
+    //         sequence.push_event(&event).unwrap();
+    //     }
 
-        assert_eq!(
-            sequence.push_event(&event).err(),
-            Some(EventError::SequenceFull {
-                capacity,
-                requested: capacity + event_size,
-            })
-        );
-    }
-
-    #[test]
-    fn test_sequence_minimum_capacity_is_16() {
-        let sequence = LV2AtomSequence::new(&TEST_WORLD, 1);
-        assert_eq!(sequence.capacity(), 16);
-    }
+    //     assert_eq!(
+    //         sequence.push_event(&event).err(),
+    //         Some(EventError::SequenceFull {
+    //             capacity,
+    //             requested: capacity + event_size,
+    //         })
+    //     );
+    // }
 
     #[test]
     fn test_sequence_push_event_is_stable() {

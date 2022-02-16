@@ -18,7 +18,7 @@
 //!         .expect("Could not instantiate plugin.")
 //! };
 //! let input = {
-//!     let mut s = livi::event::LV2AtomSequence::new(1024);
+//!     let mut s = livi::event::LV2AtomSequence::new(&world, 1024);
 //!     let play_note_data = [0x90, 0x40, 0x7f];
 //!     s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
 //!         .unwrap();
@@ -263,6 +263,76 @@ mod tests {
     fn test_midi_urid_ok() {
         let world = World::new();
         assert!(world.midi_urid() > 0, "midi urid is not valid");
+    }
+
+    #[test]
+    fn test_all() {
+        let mut world = World::new();
+        let block_size = 128;
+        world
+            .initialize_block_length(block_size, block_size)
+            .unwrap();
+        for plugin in world.iter_plugins() {
+            let port_counts = *plugin.port_counts();
+            let in_params: Vec<f32> = plugin
+                .ports_with_type(PortType::ControlInput)
+                .map(|p| p.default_value)
+                .collect();
+            let mut out_params: Vec<f32> = plugin
+                .ports_with_type(PortType::ControlOutput)
+                .map(|p| p.default_value)
+                .collect();
+            let audio_in = vec![0.0; port_counts.audio_inputs * block_size];
+            let mut audio_out = vec![0.0; port_counts.audio_outputs * block_size];
+            let cv_in = vec![0.0; port_counts.cv_inputs * block_size];
+            let mut cv_out = vec![0.0; port_counts.cv_outputs * block_size];
+            let play_note_data = [0x90, 0x40, 0x7f];
+            let release_note_data = [0x80, 0x40, 0x00];
+            let input_events = (0..port_counts.atom_sequence_inputs)
+                .map(|_| {
+                    let mut seq = LV2AtomSequence::new(&world, 1024);
+                    seq.push_midi_event::<3>(10, world.midi_urid(), &play_note_data)
+                        .unwrap();
+                    seq.push_midi_event::<3>(100, world.midi_urid(), &release_note_data)
+                        .unwrap();
+                    seq
+                })
+                .collect::<Vec<_>>();
+            let mut output_events = (0..port_counts.atom_sequence_outputs)
+                .map(|_| LV2AtomSequence::new(&world, 1024))
+                .collect::<Vec<_>>();
+            let mut instance = unsafe {
+                plugin
+                    .instantiate(SAMPLE_RATE)
+                    .expect("Could not instantiate plugin.")
+            };
+            let ports = PortConnections {
+                sample_count: block_size,
+                control_inputs: in_params.iter(),
+                control_outputs: out_params.iter_mut(),
+                audio_inputs: audio_in
+                    .chunks_exact(block_size)
+                    .take(port_counts.audio_inputs),
+                audio_outputs: audio_out
+                    .chunks_exact_mut(block_size)
+                    .take(port_counts.audio_outputs),
+                atom_sequence_inputs: input_events.iter(),
+                atom_sequence_outputs: output_events.iter_mut(),
+                cv_inputs: cv_in.chunks_exact(block_size).take(port_counts.cv_inputs),
+                cv_outputs: cv_out
+                    .chunks_exact_mut(block_size)
+                    .take(port_counts.cv_outputs),
+            };
+            unsafe {
+                assert_eq!(
+                    instance.run(ports),
+                    Ok(()),
+                    "Failed on run {} with plugin: {:?}",
+                    block_size,
+                    plugin
+                )
+            };
+        }
     }
 
     #[test]
