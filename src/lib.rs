@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn test_all() {
         let mut world = World::new();
-        let block_size = 128;
+        let block_size = 64;
         world
             .initialize_block_length(block_size, block_size)
             .unwrap();
@@ -291,9 +291,9 @@ mod tests {
             let input_events = (0..port_counts.atom_sequence_inputs)
                 .map(|_| {
                     let mut seq = LV2AtomSequence::new(&world, 1024);
-                    seq.push_midi_event::<3>(10, world.midi_urid(), &play_note_data)
+                    seq.push_midi_event::<3>(4, world.midi_urid(), &play_note_data)
                         .unwrap();
-                    seq.push_midi_event::<3>(100, world.midi_urid(), &release_note_data)
+                    seq.push_midi_event::<3>(60, world.midi_urid(), &release_note_data)
                         .unwrap();
                     seq
                 })
@@ -327,9 +327,9 @@ mod tests {
                 assert_eq!(
                     instance.run(ports),
                     Ok(()),
-                    "Failed on run {} with plugin: {:?}",
+                    "Failed on run {} with plugin: {}",
                     block_size,
-                    plugin
+                    plugin.uri(),
                 )
             };
         }
