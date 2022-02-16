@@ -306,7 +306,7 @@ mod tests {
             }
         );
         let input = {
-            let mut s = LV2AtomSequence::new(1024);
+            let mut s = LV2AtomSequence::new(&world, 1024);
             let play_note_data = [0x90, 0x40, 0x7f];
             s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
                 .unwrap();

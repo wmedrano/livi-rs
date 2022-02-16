@@ -91,6 +91,8 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
 
 /// An atom sequence.
 pub struct LV2AtomSequence {
+    atom_sequence_urid: lv2_raw::LV2Urid,
+    atom_chunk_urid: lv2_raw::LV2Urid,
     buffer: Vec<u8>,
 }
 
@@ -107,8 +109,16 @@ impl LV2AtomSequence {
     /// aligned to 8 bytes which means the sizes are always rounded up to the
     /// next multiple of 8.
     #[must_use]
-    pub fn new(capacity: usize) -> LV2AtomSequence {
+    pub fn new(world: &crate::World, capacity: usize) -> LV2AtomSequence {
         let mut seq = LV2AtomSequence {
+            atom_sequence_urid: world.urid(
+                std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Sequence\0")
+                    .unwrap(),
+            ),
+            atom_chunk_urid: world.urid(
+                std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Chunk\0")
+                    .unwrap(),
+            ),
             buffer: vec![0; capacity.max(MINIMUM_ATOM_SEQUENCE_SIZE)],
         };
         seq.clear();
@@ -117,7 +127,21 @@ impl LV2AtomSequence {
 
     /// Clear all events in the sequence.
     pub fn clear(&mut self) {
-        unsafe { lv2_raw::atomutils::lv2_atom_sequence_clear(self.as_mut_ptr()) }
+        unsafe {
+            let seq = self.as_mut_ptr();
+            (*seq).atom.mytype = self.atom_sequence_urid;
+            (*seq).atom.size = std::mem::size_of::<lv2_raw::LV2AtomSequenceBody>() as u32;
+        }
+    }
+
+    /// Clear all events and designate the sequence as a chunk.
+    pub fn clear_as_chunk(&mut self) {
+        let capacity = self.capacity() as u32;
+        unsafe {
+            let seq = self.as_mut_ptr();
+            (*seq).atom.mytype = self.atom_chunk_urid;
+            (*seq).atom.size = capacity;
+        }
     }
 
     /// Append an event to the sequence. If there is no capacity for it, then it
@@ -182,7 +206,7 @@ impl LV2AtomSequence {
     /// Get the capacity of the sequence.
     #[must_use]
     pub fn capacity(&self) -> usize {
-        self.buffer.len()
+        self.buffer.len() - std::mem::size_of::<lv2_raw::LV2AtomSequence>()
     }
 
     /// Get the current size of the sequence in bytes.
@@ -281,10 +305,15 @@ impl<'a> Debug for LV2AtomEventWithData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref TEST_WORLD: crate::World = crate::World::new();
+    }
 
     #[test]
     fn test_sequence_push_events_and_iter_events() {
-        let mut sequence = LV2AtomSequence::new(4096);
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 4096);
         let event = LV2AtomEventBuilder::<8>::new(0, 0, &[0, 10, 20, 30, 40, 50, 60, 70]).unwrap();
         for _ in 0..10 {
             sequence.push_event(&event).unwrap();
@@ -306,7 +335,7 @@ mod tests {
 
         let events_to_push = 1_000;
         let capacity = base_size + (events_to_push * event_size);
-        let mut sequence = LV2AtomSequence::new(capacity);
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
         for _ in 0..events_to_push {
             sequence.push_event(&event).unwrap();
         }
@@ -322,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_sequence_minimum_capacity_is_16() {
-        let sequence = LV2AtomSequence::new(1);
+        let sequence = LV2AtomSequence::new(&TEST_WORLD, 1);
         assert_eq!(sequence.capacity(), 16);
     }
 
@@ -330,7 +359,7 @@ mod tests {
     fn test_sequence_push_event_is_stable() {
         let event = LV2AtomEventBuilder::new_full(0, 0, [10]);
         for capacity in 0..10000 {
-            let mut sequence = LV2AtomSequence::new(capacity);
+            let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
             while sequence.push_event(&event).is_ok() {}
         }
     }
