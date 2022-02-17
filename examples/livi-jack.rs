@@ -2,7 +2,7 @@
 ///
 /// Run with: `cargo run --release -- --plugin-uri=${PLUGIN_URI}`
 use livi::event::LV2AtomSequence;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::convert::TryFrom;
 use structopt::StructOpt;
 
@@ -193,7 +193,7 @@ fn copy_atom_sequence_to_midi_out(
     let mut writer = dst.writer(ps);
     for event in src.iter() {
         if event.event.body.mytype != midi_urid {
-            debug!(
+            warn!(
                 "Found non-midi event with URID: {}",
                 event.event.body.mytype
             );

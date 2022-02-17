@@ -221,6 +221,19 @@ impl LV2AtomSequence {
     /// Panics if the underlying sequence is not well formed.
     #[must_use]
     pub fn iter(&self) -> LV2AtomSequenceIter<'_> {
+        unsafe {
+            let seq = self.as_ptr();
+            // Only sequences can be iterated over. Chunks are expected to be
+            // passed to plugins and mutated into sequences.
+            if (*seq).atom.mytype != self.atom_sequence_urid {
+                return LV2AtomSequenceIter {
+                    _sequence: PhantomData,
+                    body: std::ptr::null(),
+                    size: 0,
+                    next: std::ptr::null(),
+                };
+            }
+        }
         let body = unsafe { &self.as_ptr().as_ref().unwrap().body };
         let size = unsafe { self.as_ptr().as_ref().unwrap().atom.size };
         let begin = unsafe { lv2_raw::lv2_atom_sequence_begin(body) };
@@ -255,6 +268,9 @@ impl<'a> Iterator for LV2AtomSequenceIter<'a> {
     type Item = LV2AtomEventWithData<'a>;
 
     fn next(&mut self) -> Option<LV2AtomEventWithData<'a>> {
+        if self.size == 0 {
+            return None;
+        }
         let is_end = unsafe { lv2_raw::lv2_atom_sequence_is_end(self.body, self.size, self.next) };
         if is_end {
             return None;
@@ -283,6 +299,7 @@ impl<'a> Debug for LV2AtomSequenceIter<'a> {
 /// This type can not usually be used as a direct substitute for `LV2AtomEvent`
 /// since it does not guarantee that `event` and `data` are linked together
 /// properly in terms of pointers and data layout.
+#[derive(Clone)]
 pub struct LV2AtomEventWithData<'a> {
     pub event: &'a lv2_raw::LV2AtomEvent,
     pub data: &'a [u8],
@@ -359,5 +376,31 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 1024);
+
+        sequence
+            .push_event(&LV2AtomEventBuilder::new_full(0, 0, [1, 2, 3]))
+            .unwrap();
+        assert_eq!(sequence.iter().count(), 1);
+
+        sequence.clear();
+        assert_eq!(sequence.iter().count(), 0);
+    }
+
+    #[test]
+    fn test_clear_as_chunk() {
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 1024);
+
+        sequence
+            .push_event(&LV2AtomEventBuilder::new_full(0, 0, [1, 2, 3]))
+            .unwrap();
+        assert_eq!(sequence.iter().count(), 1);
+
+        sequence.clear_as_chunk();
+        assert_eq!(sequence.iter().count(), 0);
     }
 }
