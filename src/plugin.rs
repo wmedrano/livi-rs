@@ -288,6 +288,7 @@ impl Instance {
             .atom_sequence_outputs
             .zip(self.atom_sequence_outputs.iter())
         {
+            data.clear_as_chunk();
             self.inner
                 .instance_mut()
                 .connect_port_mut(index.0, data.as_mut_ptr());
@@ -416,7 +417,7 @@ mod tests {
                 .instantiate(sample_rate)
                 .expect("Could not instantiate plugin.")
         };
-        let input = crate::event::LV2AtomSequence::new(1024);
+        let input = crate::event::LV2AtomSequence::new(&world, 1024);
         let params: Vec<f32> = plugin
             .ports_with_type(crate::PortType::ControlInput)
             .map(|p| p.default_value)

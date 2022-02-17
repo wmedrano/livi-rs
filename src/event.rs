@@ -91,10 +91,10 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
 
 /// An atom sequence.
 pub struct LV2AtomSequence {
+    atom_sequence_urid: lv2_raw::LV2Urid,
+    atom_chunk_urid: lv2_raw::LV2Urid,
     buffer: Vec<u8>,
 }
-
-const MINIMUM_ATOM_SEQUENCE_SIZE: usize = std::mem::size_of::<lv2_raw::LV2AtomSequence>();
 
 impl LV2AtomSequence {
     /// Create a new sequence with a capacity to hold `capacity` bytes.
@@ -107,9 +107,17 @@ impl LV2AtomSequence {
     /// aligned to 8 bytes which means the sizes are always rounded up to the
     /// next multiple of 8.
     #[must_use]
-    pub fn new(capacity: usize) -> LV2AtomSequence {
+    pub fn new(world: &crate::World, capacity: usize) -> LV2AtomSequence {
         let mut seq = LV2AtomSequence {
-            buffer: vec![0; capacity.max(MINIMUM_ATOM_SEQUENCE_SIZE)],
+            atom_sequence_urid: world.urid(
+                std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Sequence\0")
+                    .unwrap(),
+            ),
+            atom_chunk_urid: world.urid(
+                std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Chunk\0")
+                    .unwrap(),
+            ),
+            buffer: vec![0; capacity + std::mem::size_of::<lv2_raw::LV2AtomSequence>()],
         };
         seq.clear();
         seq
@@ -117,7 +125,21 @@ impl LV2AtomSequence {
 
     /// Clear all events in the sequence.
     pub fn clear(&mut self) {
-        unsafe { lv2_raw::atomutils::lv2_atom_sequence_clear(self.as_mut_ptr()) }
+        unsafe {
+            let seq = self.as_mut_ptr();
+            (*seq).atom.mytype = self.atom_sequence_urid;
+            (*seq).atom.size = std::mem::size_of::<lv2_raw::LV2AtomSequenceBody>() as u32;
+        }
+    }
+
+    /// Clear all events and designate the sequence as a chunk.
+    pub fn clear_as_chunk(&mut self) {
+        let capacity = self.capacity() as u32;
+        unsafe {
+            let seq = self.as_mut_ptr();
+            (*seq).atom.mytype = self.atom_chunk_urid;
+            (*seq).atom.size = capacity;
+        }
     }
 
     /// Append an event to the sequence. If there is no capacity for it, then it
@@ -131,14 +153,13 @@ impl LV2AtomSequence {
     ) -> Result<(), EventError> {
         let event_size =
             std::mem::size_of::<lv2_raw::LV2AtomEvent>() as u32 + event.event.body.size;
-        let capacity = self.capacity() as u32;
         let sequence = unsafe { &mut *self.as_mut_ptr() };
         // This size includes the atom sequence header.
         let current_sequence_size =
             std::mem::size_of_val(&sequence.atom) as u32 + sequence.atom.size;
-        if capacity < current_sequence_size + event_size {
+        if (self.buffer.len() as u32) < current_sequence_size + event_size {
             return Err(EventError::SequenceFull {
-                capacity: capacity as usize,
+                capacity: self.capacity() as usize,
                 requested: (current_sequence_size + event_size) as usize,
             });
         }
@@ -182,7 +203,7 @@ impl LV2AtomSequence {
     /// Get the capacity of the sequence.
     #[must_use]
     pub fn capacity(&self) -> usize {
-        self.buffer.len()
+        self.buffer.len() - std::mem::size_of::<lv2_raw::LV2AtomSequence>()
     }
 
     /// Get the current size of the sequence in bytes.
@@ -200,6 +221,19 @@ impl LV2AtomSequence {
     /// Panics if the underlying sequence is not well formed.
     #[must_use]
     pub fn iter(&self) -> LV2AtomSequenceIter<'_> {
+        unsafe {
+            let seq = self.as_ptr();
+            // Only sequences can be iterated over. Chunks are expected to be
+            // passed to plugins and mutated into sequences.
+            if (*seq).atom.mytype != self.atom_sequence_urid {
+                return LV2AtomSequenceIter {
+                    _sequence: PhantomData,
+                    body: std::ptr::null(),
+                    size: 0,
+                    next: std::ptr::null(),
+                };
+            }
+        }
         let body = unsafe { &self.as_ptr().as_ref().unwrap().body };
         let size = unsafe { self.as_ptr().as_ref().unwrap().atom.size };
         let begin = unsafe { lv2_raw::lv2_atom_sequence_begin(body) };
@@ -234,6 +268,9 @@ impl<'a> Iterator for LV2AtomSequenceIter<'a> {
     type Item = LV2AtomEventWithData<'a>;
 
     fn next(&mut self) -> Option<LV2AtomEventWithData<'a>> {
+        if self.size == 0 {
+            return None;
+        }
         let is_end = unsafe { lv2_raw::lv2_atom_sequence_is_end(self.body, self.size, self.next) };
         if is_end {
             return None;
@@ -262,6 +299,7 @@ impl<'a> Debug for LV2AtomSequenceIter<'a> {
 /// This type can not usually be used as a direct substitute for `LV2AtomEvent`
 /// since it does not guarantee that `event` and `data` are linked together
 /// properly in terms of pointers and data layout.
+#[derive(Clone)]
 pub struct LV2AtomEventWithData<'a> {
     pub event: &'a lv2_raw::LV2AtomEvent,
     pub data: &'a [u8],
@@ -281,10 +319,15 @@ impl<'a> Debug for LV2AtomEventWithData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref TEST_WORLD: crate::World = crate::World::new();
+    }
 
     #[test]
     fn test_sequence_push_events_and_iter_events() {
-        let mut sequence = LV2AtomSequence::new(4096);
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 4096);
         let event = LV2AtomEventBuilder::<8>::new(0, 0, &[0, 10, 20, 30, 40, 50, 60, 70]).unwrap();
         for _ in 0..10 {
             sequence.push_event(&event).unwrap();
@@ -300,13 +343,13 @@ mod tests {
         // Keep it aligned to 8 bytes to prevent wasting capacity due to
         // padding.
         let event_data = [0; 8];
-        let base_size = MINIMUM_ATOM_SEQUENCE_SIZE;
         let event_size = std::mem::size_of::<lv2_raw::LV2AtomEvent>() + event_data.len();
+        assert_eq!(event_size, 24);
         let event = LV2AtomEventBuilder::new_full(0, 0, event_data);
 
         let events_to_push = 1_000;
-        let capacity = base_size + (events_to_push * event_size);
-        let mut sequence = LV2AtomSequence::new(capacity);
+        let capacity = events_to_push * event_size;
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
         for _ in 0..events_to_push {
             sequence.push_event(&event).unwrap();
         }
@@ -315,23 +358,49 @@ mod tests {
             sequence.push_event(&event).err(),
             Some(EventError::SequenceFull {
                 capacity,
-                requested: capacity + event_size,
+                requested: 24040,
             })
         );
     }
 
     #[test]
-    fn test_sequence_minimum_capacity_is_16() {
-        let sequence = LV2AtomSequence::new(1);
-        assert_eq!(sequence.capacity(), 16);
+    fn test_sequence_iter_is_stable() {
+        let data = [0; 32];
+        for data_size in 0..32 {
+            let event = LV2AtomEventBuilder::<32>::new(0, 0, &data[..data_size]).unwrap();
+            for capacity in 0..1024 {
+                let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
+                while sequence.push_event(&event).is_ok() {}
+                for event in sequence.iter() {
+                    assert_eq!(event.data, &data[..data_size]);
+                }
+            }
+        }
     }
 
     #[test]
-    fn test_sequence_push_event_is_stable() {
-        let event = LV2AtomEventBuilder::new_full(0, 0, [10]);
-        for capacity in 0..10000 {
-            let mut sequence = LV2AtomSequence::new(capacity);
-            while sequence.push_event(&event).is_ok() {}
-        }
+    fn test_clear() {
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 1024);
+
+        sequence
+            .push_event(&LV2AtomEventBuilder::new_full(0, 0, [1, 2, 3]))
+            .unwrap();
+        assert_eq!(sequence.iter().count(), 1);
+
+        sequence.clear();
+        assert_eq!(sequence.iter().count(), 0);
+    }
+
+    #[test]
+    fn test_clear_as_chunk() {
+        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 1024);
+
+        sequence
+            .push_event(&LV2AtomEventBuilder::new_full(0, 0, [1, 2, 3]))
+            .unwrap();
+        assert_eq!(sequence.iter().count(), 1);
+
+        sequence.clear_as_chunk();
+        assert_eq!(sequence.iter().count(), 0);
     }
 }

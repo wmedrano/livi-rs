@@ -18,7 +18,7 @@
 //!         .expect("Could not instantiate plugin.")
 //! };
 //! let input = {
-//!     let mut s = livi::event::LV2AtomSequence::new(1024);
+//!     let mut s = livi::event::LV2AtomSequence::new(&world, 1024);
 //!     let play_note_data = [0x90, 0x40, 0x7f];
 //!     s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
 //!         .unwrap();
@@ -266,12 +266,83 @@ mod tests {
     }
 
     #[test]
+    fn test_all() {
+        let mut world = World::new();
+        let block_size = 64;
+        world
+            .initialize_block_length(block_size, block_size)
+            .unwrap();
+        for plugin in world.iter_plugins() {
+            let port_counts = *plugin.port_counts();
+            let in_params: Vec<f32> = plugin
+                .ports_with_type(PortType::ControlInput)
+                .map(|p| p.default_value)
+                .collect();
+            let mut out_params: Vec<f32> = plugin
+                .ports_with_type(PortType::ControlOutput)
+                .map(|p| p.default_value)
+                .collect();
+            let audio_in = vec![0.0; port_counts.audio_inputs * block_size];
+            let mut audio_out = vec![0.0; port_counts.audio_outputs * block_size];
+            let cv_in = vec![0.0; port_counts.cv_inputs * block_size];
+            let mut cv_out = vec![0.0; port_counts.cv_outputs * block_size];
+            let play_note_data = [0x90, 0x40, 0x7f];
+            let release_note_data = [0x80, 0x40, 0x00];
+            let input_events = (0..port_counts.atom_sequence_inputs)
+                .map(|_| {
+                    let mut seq = LV2AtomSequence::new(&world, 1024);
+                    seq.push_midi_event::<3>(4, world.midi_urid(), &play_note_data)
+                        .unwrap();
+                    seq.push_midi_event::<3>(60, world.midi_urid(), &release_note_data)
+                        .unwrap();
+                    seq
+                })
+                .collect::<Vec<_>>();
+            let mut output_events = (0..port_counts.atom_sequence_outputs)
+                .map(|_| LV2AtomSequence::new(&world, 1024))
+                .collect::<Vec<_>>();
+            let mut instance = unsafe {
+                plugin
+                    .instantiate(SAMPLE_RATE)
+                    .expect("Could not instantiate plugin.")
+            };
+            let ports = PortConnections {
+                sample_count: block_size,
+                control_inputs: in_params.iter(),
+                control_outputs: out_params.iter_mut(),
+                audio_inputs: audio_in
+                    .chunks_exact(block_size)
+                    .take(port_counts.audio_inputs),
+                audio_outputs: audio_out
+                    .chunks_exact_mut(block_size)
+                    .take(port_counts.audio_outputs),
+                atom_sequence_inputs: input_events.iter(),
+                atom_sequence_outputs: output_events.iter_mut(),
+                cv_inputs: cv_in.chunks_exact(block_size).take(port_counts.cv_inputs),
+                cv_outputs: cv_out
+                    .chunks_exact_mut(block_size)
+                    .take(port_counts.cv_outputs),
+            };
+            unsafe {
+                assert_eq!(
+                    instance.run(ports),
+                    Ok(()),
+                    "Failed on run {} with plugin: {}",
+                    block_size,
+                    plugin.uri(),
+                )
+            };
+        }
+    }
+
+    #[test]
     fn test_mda_epiano() {
         let mut world = World::new();
         world
             .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
             .unwrap();
         let plugin = world
+            // Electric Piano instrument.
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
         assert_eq!(
@@ -306,7 +377,7 @@ mod tests {
             }
         );
         let input = {
-            let mut s = LV2AtomSequence::new(1024);
+            let mut s = LV2AtomSequence::new(&world, 1024);
             let play_note_data = [0x90, 0x40, 0x7f];
             s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
                 .unwrap();
@@ -324,6 +395,82 @@ mod tests {
                 .with_control_inputs(params.iter());
             unsafe { instance.run(ports).unwrap() };
         }
+        for output in outputs.iter_mut() {
+            assert!(
+                output.iter().map(|x| x.abs()).sum::<f32>() > 0.0,
+                "No signal was output."
+            );
+        }
+    }
+
+    #[test]
+    fn test_fifths() {
+        let mut world = World::new();
+        let block_size = 128;
+        world
+            .initialize_block_length(block_size, block_size)
+            .unwrap();
+        let plugin = world
+            // Takes a midi and adds the fifth of every note.
+            .plugin_by_uri("http://lv2plug.in/plugins/eg-fifths")
+            .expect("Plugin not found.");
+        assert_eq!(
+            *plugin.port_counts(),
+            PortCounts {
+                control_inputs: 0,
+                control_outputs: 0,
+                audio_inputs: 0,
+                audio_outputs: 0,
+                atom_sequence_inputs: 1,
+                atom_sequence_outputs: 1,
+                cv_inputs: 0,
+                cv_outputs: 0,
+            }
+        );
+        let mut instance = unsafe {
+            plugin
+                .instantiate(SAMPLE_RATE)
+                .expect("Could not instantiate plugin.")
+        };
+
+        let play_c3 = [0x90, 0x30, 0x7f];
+        let play_c4 = [0x90, 0x3C, 0x7f];
+        let play_g4 = [0x90, 0x43, 0x7f];
+        let release_c4 = [0x80, 0x3C, 0x00];
+        let release_g4 = [0x80, 0x43, 0x00];
+
+        let mut input = LV2AtomSequence::new(&world, 1024);
+        input
+            .push_midi_event::<3>(1, world.midi_urid(), &play_c4)
+            .unwrap();
+        input
+            .push_midi_event::<3>(10, world.midi_urid(), &release_c4)
+            .unwrap();
+
+        let mut output = LV2AtomSequence::new(&world, 1024);
+        // This note should be cleared from the output by the LV2 plugin.
+        output
+            .push_midi_event::<3>(1, world.midi_urid(), &play_c3)
+            .unwrap();
+
+        for _ in 0..10 {
+            let ports = EmptyPortConnections::new(block_size)
+                .with_atom_sequence_inputs(std::iter::once(&input))
+                .with_atom_sequence_outputs(std::iter::once(&mut output));
+            unsafe { instance.run(ports).unwrap() };
+        }
+
+        let got = output
+            .iter()
+            .map(|e| (e.event.time_in_frames, e.data))
+            .collect::<Vec<_>>();
+        let expected: Vec<(i64, &[u8])> = vec![
+            (1, &play_c4),     // Original input.
+            (1, &play_g4),     // Fifth added.
+            (10, &release_c4), // Original input.
+            (10, &release_g4), // Fifth added.
+        ];
+        assert_eq!(got, expected);
     }
 
     #[test]

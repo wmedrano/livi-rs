@@ -2,7 +2,7 @@
 ///
 /// Run with: `cargo run --release -- --plugin-uri=${PLUGIN_URI}`
 use livi::event::LV2AtomSequence;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::convert::TryFrom;
 use structopt::StructOpt;
 
@@ -29,8 +29,7 @@ fn main() {
 
     let mut livi = livi::World::new();
     let plugin = livi
-        .iter_plugins()
-        .find(|p| p.uri() == config.plugin_uri)
+        .plugin_by_uri(&config.plugin_uri)
         .unwrap_or_else(|| panic!("Could not find plugin with URI {}", config.plugin_uri));
 
     let (client, status) =
@@ -89,12 +88,12 @@ impl Processor {
         let event_inputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceInput)
             .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
-            .map(|p| (p, LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
+            .map(|p| (p, LV2AtomSequence::new(world, EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let event_outputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceOutput)
             .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
-            .map(|p| (p, LV2AtomSequence::new(EVENT_BUFFER_SIZE)))
+            .map(|p| (p, LV2AtomSequence::new(world, EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let cv_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
             .ports_with_type(livi::PortType::CVInput)
@@ -194,7 +193,7 @@ fn copy_atom_sequence_to_midi_out(
     let mut writer = dst.writer(ps);
     for event in src.iter() {
         if event.event.body.mytype != midi_urid {
-            debug!(
+            warn!(
                 "Found non-midi event with URID: {}",
                 event.event.body.mytype
             );
