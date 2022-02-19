@@ -94,7 +94,7 @@ pub struct Worker {
     interface: lv2_sys::LV2_Worker_Interface,
     instance_handle: lv2_sys::LV2_Handle,
     receiver: WorkerMessageReceiver, // Where we find work to do
-    sender: WorkerMessageSender,     // Where we send the results of our work
+    sender: WorkerMessageSender,                // Where we send the results of our work
 }
 
 impl Worker {
@@ -151,7 +151,7 @@ pub(crate) unsafe fn maybe_get_worker_interface(
         *instance
             .instance()
             .extension_data::<lv2_sys::LV2_Worker_Interface>(
-                std::str::from_utf8(lv2_sys::LV2_WORKER__interface).unwrap(),
+                "http://lv2plug.in/ns/ext/worker#interface",
             )?
             .as_ref(),
     )

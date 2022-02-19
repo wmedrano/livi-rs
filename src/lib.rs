@@ -70,6 +70,27 @@ impl World {
         World::with_plugin_predicate(|_| true)
     }
 
+    /// Creates a new world that includes only a single
+    /// plugin specified by bundle_uri.
+    /// bundle_uri must be a fully qualified URI to the bundle directory,
+    /// with the trailing slash, eg file:///usr/lib/lv2/foo.lv2/.
+    pub fn with_load_bundle(bundle_uri: &str) -> World {
+        let world = lilv::World::new();
+        let uri = world.new_uri(bundle_uri);
+        world.load_bundle(&uri);
+        let resources = Arc::new(Resources::new(&world));
+        let plugins: Vec<Plugin> = world
+            .plugins()
+            .into_iter()
+            .map(|p| Plugin::from_raw(p, resources.clone()))
+            .collect();
+
+        World {
+            resources,
+            livi_plugins: plugins,
+        }
+    }
+
     /// Creates a new world that includes all plugins that are found and return
     /// `true` for `predicate.
     #[must_use]
