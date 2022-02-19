@@ -80,9 +80,10 @@ struct SetSamplerMessage(lv2_sys::LV2_Atom_Object_Body, PatchValue, PatchPropert
 // Some helper functions
 fn run_instance_with_input_sequence(
     instance: &mut Instance,
+    world: &mut World,
     input: LV2AtomSequence,
 ) -> [Vec<f32>; 1] {
-    let mut output_events = LV2AtomSequence::new(1024);
+    let mut output_events = LV2AtomSequence::new(world, 1024);
     let mut outputs = [vec![0.0; MAX_BLOCK_SIZE]];
 
     let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
@@ -100,13 +101,13 @@ fn run_instance_with_single_midi_note_input(
     world: &mut World,
 ) -> [Vec<f32>; 1] {
     let input = {
-        let mut s = LV2AtomSequence::new(1024);
+        let mut s = LV2AtomSequence::new(world, 1024);
         let play_note_data = [0x90, 0x40, 0x7f];
         s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
             .unwrap();
         s
     };
-    run_instance_with_input_sequence(instance, input)
+    run_instance_with_input_sequence(instance, world, input)
 }
 
 fn build_sampler_message(world: &mut World, sample_filepath: &str) -> SetSamplerMessage {
@@ -203,7 +204,7 @@ fn test_sampler() {
     let object_urid = world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Object).unwrap());
 
     let input = {
-        let mut sequence = LV2AtomSequence::new(1024);
+        let mut sequence = LV2AtomSequence::new(&world, 1024);
         let m = &message as *const SetSamplerMessage as *const u8;
         let slice: &[u8] = unsafe { std::slice::from_raw_parts(m, size_of::<SetSamplerMessage>()) };
         let event = LV2AtomEventBuilder::<512>::new(0, object_urid, slice).unwrap();
@@ -211,7 +212,7 @@ fn test_sampler() {
         sequence
     };
 
-    let outputs = run_instance_with_input_sequence(&mut instance, input);
+    let outputs = run_instance_with_input_sequence(&mut instance, &mut world, input);
     assert_silence(outputs);
 
     worker_manager.run_workers();

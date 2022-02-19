@@ -94,7 +94,7 @@ pub struct Worker {
     interface: lv2_sys::LV2_Worker_Interface,
     instance_handle: lv2_sys::LV2_Handle,
     receiver: WorkerMessageReceiver, // Where we find work to do
-    sender: WorkerMessageSender,                // Where we send the results of our work
+    sender: WorkerMessageSender,     // Where we send the results of our work
 }
 
 impl Worker {
