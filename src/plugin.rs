@@ -381,6 +381,17 @@ fn iter_ports_impl<'a>(
             (IOType::Input, DataType::CV) => PortType::CVInput,
             (IOType::Output, DataType::CV) => PortType::CVOutput,
         };
+        let default_value = p.range().default.map_or(0.0, |n| {
+            if n.is_float() {
+                n.as_float().unwrap_or(0.0)
+            } else if n.is_int() {
+                n.as_int().unwrap_or(0) as f32
+            } else if n.as_bool().unwrap_or(false) {
+                1.0
+            } else {
+                0.0
+            }
+        });
         Port {
             port_type,
             name: p
@@ -389,10 +400,7 @@ fn iter_ports_impl<'a>(
                 .as_str()
                 .unwrap_or("BAD_NAME")
                 .to_string(),
-            default_value: p
-                .range()
-                .default
-                .map_or(0.0, |n| n.as_float().unwrap_or(0.0)),
+            default_value,
             index: PortIndex(p.index()),
         }
     })
