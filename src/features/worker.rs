@@ -217,7 +217,7 @@ pub(crate) fn end_run(
 /// };
 ///
 /// let mut worker_manager = livi::WorkerManager::default();
-/// if let Some(worker) = instance.get_worker() {
+/// if let Some(worker) = instance.take_worker() {
 ///     worker_manager.add_worker(worker);
 /// }
 ///

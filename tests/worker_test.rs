@@ -193,7 +193,7 @@ fn test_sampler() {
 
     let mut worker_manager = WorkerManager::default();
 
-    if let Some(worker) = instance.get_worker() {
+    if let Some(worker) = instance.take_worker() {
         worker_manager.add_worker(worker);
     }
 

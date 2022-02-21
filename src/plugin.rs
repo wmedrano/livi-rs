@@ -421,7 +421,7 @@ impl Instance {
     /// Grab the worker before you send the plugin
     /// instance to the realtime thread and hold
     /// onto it to perform work asynchronously.
-    pub fn get_worker(&mut self) -> Option<worker::Worker> {
+    pub fn take_worker(&mut self) -> Option<worker::Worker> {
         self.worker.take()
     }
 }
