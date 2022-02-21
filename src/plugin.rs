@@ -1,12 +1,16 @@
+use core::ffi::c_void;
+use std::boxed::Box;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     error::{InstantiateError, RunError},
     event::LV2AtomSequence,
+    features::{worker, BOUNDED_BLOCK_LENGTH},
     port::{DataType, IOType},
     Port, PortConnections, PortCounts, PortIndex, PortType, Resources,
 };
+use lv2_raw::LV2Feature;
 
 /// A plugin that can be used to instantiate plugin instances.
 #[derive(Clone)]
@@ -65,10 +69,51 @@ impl Plugin {
         let (min_block_size, max_block_size) = features
             .min_and_max_block_length
             .ok_or(InstantiateError::BlockLengthNotInitialized)?;
+
+        let (instance_to_worker_sender, instance_to_worker_receiver) = worker::instantiate_queue();
+        let (worker_to_instance_sender, worker_to_instance_receiver) = worker::instantiate_queue();
+        let instance_to_worker_sender = Box::new(instance_to_worker_sender);
+        let instance_to_worker_sender = Box::into_raw(instance_to_worker_sender);
+        let worker_schedule = Box::new(lv2_sys::LV2_Worker_Schedule {
+            handle: instance_to_worker_sender as *mut c_void,
+            schedule_work: Some(worker::schedule_work),
+        });
+        let instance_to_worker_sender = Box::from_raw(instance_to_worker_sender);
+
+        let worker_schedule = Box::into_raw(worker_schedule);
+        let worker_feature = LV2Feature {
+            uri: lv2_sys::LV2_WORKER__schedule.as_ptr() as *mut i8,
+            data: worker_schedule as *mut c_void,
+        };
+        let worker_schedule = Box::from_raw(worker_schedule);
+
+        let features = std::iter::once(features.urid_map.as_urid_map_feature())
+            .chain(std::iter::once(features.urid_map.as_urid_unmap_feature()))
+            .chain(std::iter::once(features.options.as_feature()))
+            .chain(std::iter::once(&BOUNDED_BLOCK_LENGTH))
+            .chain(std::iter::once(&worker_feature));
+
         let instance = self
             .inner
-            .instantiate(sample_rate, features.iter_features())
+            .instantiate(sample_rate, features)
             .ok_or(InstantiateError::UnknownError)?;
+
+        let mut inner = instance.activate();
+
+        let worker_interface = worker::maybe_get_worker_interface(&mut inner);
+
+        #[allow(clippy::mutex_atomic)]
+        let is_alive = Arc::new(Mutex::new(true));
+        let worker = worker_interface.map(|interface| {
+            worker::Worker::new(
+                is_alive.clone(),
+                interface,
+                inner.instance().handle(),
+                instance_to_worker_receiver,
+                worker_to_instance_sender,
+            )
+        });
+
         let mut control_inputs = Vec::new();
         let mut control_outputs = Vec::new();
         let mut audio_inputs = Vec::new();
@@ -89,8 +134,9 @@ impl Plugin {
                 PortType::CVOutput => cv_outputs.push(port.index),
             }
         }
+
         Ok(Instance {
-            inner: instance.activate(),
+            inner,
             min_block_size,
             max_block_size,
             control_inputs,
@@ -101,6 +147,12 @@ impl Plugin {
             atom_sequence_outputs,
             cv_inputs,
             cv_outputs,
+            worker,
+            worker_interface,
+            worker_to_instance_receiver,
+            _worker_schedule: worker_schedule,
+            _instance_to_worker_sender: instance_to_worker_sender,
+            is_alive,
         })
     }
 
@@ -155,7 +207,15 @@ pub struct Instance {
     atom_sequence_outputs: Vec<PortIndex>,
     cv_inputs: Vec<PortIndex>,
     cv_outputs: Vec<PortIndex>,
+    worker: Option<worker::Worker>,
+    worker_interface: Option<lv2_sys::LV2_Worker_Interface>,
+    worker_to_instance_receiver: worker::WorkerMessageReceiver,
+    _worker_schedule: Box<lv2_sys::LV2_Worker_Schedule>,
+    _instance_to_worker_sender: Box<worker::WorkerMessageSender>,
+    is_alive: Arc<Mutex<bool>>,
 }
+
+unsafe impl Send for Instance {}
 
 impl Instance {
     /// Run the plugin for a given number of samples.
@@ -316,6 +376,16 @@ impl Instance {
                 .connect_port_mut(index.0, data.as_mut_ptr());
         }
         self.inner.run(ports.sample_count);
+
+        if let Some(interface) = self.worker_interface.as_mut() {
+            worker::handle_work_responses(
+                interface,
+                &mut self.worker_to_instance_receiver,
+                self.inner.instance().handle(),
+            );
+            worker::end_run(interface, self.inner.instance().handle());
+        }
+
         Ok(())
     }
 
@@ -345,6 +415,22 @@ impl Instance {
             cv_inputs: self.port_counts_for_type(PortType::CVInput),
             cv_outputs: self.port_counts_for_type(PortType::CVOutput),
         }
+    }
+
+    /// Returns this instance's worker. There is only
+    /// one worker and you can only retrieve it once.
+    /// Grab the worker before you send the plugin
+    /// instance to the realtime thread and hold
+    /// onto it to perform work asynchronously.
+    pub fn take_worker(&mut self) -> Option<worker::Worker> {
+        self.worker.take()
+    }
+}
+
+impl Drop for Instance {
+    fn drop(&mut self) {
+        let mut is_alive = self.is_alive.lock().unwrap();
+        *is_alive = false;
     }
 }
 

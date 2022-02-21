@@ -17,9 +17,12 @@ lilv = "0.2"
 log = "0.4"
 lv2-sys = "2"
 lv2_raw = "0.2"
+ringbuf = "0.2.6"
 
 [dev-dependencies]
 env_logger = "0.9"
 jack = "0.9"
 lazy_static = "1.4"
 structopt = "0.3"
+wav = "1.0.0"
+tempfile = "3.3.0"

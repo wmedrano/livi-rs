@@ -40,6 +40,7 @@ use crate::features::Features;
 use log::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 
+pub use features::worker::{Worker, WorkerManager};
 pub use plugin::{Instance, Plugin};
 pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
 
@@ -67,6 +68,27 @@ impl World {
     #[must_use]
     pub fn new() -> World {
         World::with_plugin_predicate(|_| true)
+    }
+
+    /// Creates a new world that includes only a single
+    /// plugin specified by bundle_uri.
+    /// bundle_uri must be a fully qualified URI to the bundle directory,
+    /// with the trailing slash, eg file:///usr/lib/lv2/foo.lv2/.
+    pub fn with_load_bundle(bundle_uri: &str) -> World {
+        let world = lilv::World::new();
+        let uri = world.new_uri(bundle_uri);
+        world.load_bundle(&uri);
+        let resources = Arc::new(Resources::new(&world));
+        let plugins: Vec<Plugin> = world
+            .plugins()
+            .into_iter()
+            .map(|p| Plugin::from_raw(p, resources.clone()))
+            .collect();
+
+        World {
+            resources,
+            livi_plugins: plugins,
+        }
     }
 
     /// Creates a new world that includes all plugins that are found and return
@@ -498,23 +520,22 @@ mod tests {
 
     #[test]
     fn test_supported_features() {
-        let want: HashSet<String> = [
+        let supported_features = World::new()
+            .resources
+            .features
+            .lock()
+            .unwrap()
+            .supported_features();
+
+        assert!(supported_features.contains("http://lv2plug.in/ns/ext/urid#map"));
+
+        let want = HashSet::from([
             "http://lv2plug.in/ns/ext/urid#map",
             "http://lv2plug.in/ns/ext/urid#unmap",
             "http://lv2plug.in/ns/ext/options#options",
             "http://lv2plug.in/ns/ext/buf-size#boundedBlockLength",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        assert_eq!(
-            want,
-            World::new()
-                .resources
-                .features
-                .lock()
-                .unwrap()
-                .supported_features()
-        );
+            "http://lv2plug.in/ns/ext/worker#schedule",
+        ]);
+        assert_eq!(want, supported_features);
     }
 }
