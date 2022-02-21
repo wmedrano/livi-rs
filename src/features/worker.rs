@@ -144,6 +144,7 @@ impl Worker {
     }
 }
 
+// Not real-time safe.
 pub(crate) unsafe fn maybe_get_worker_interface(
     instance: &mut lilv::instance::ActiveInstance,
 ) -> Option<lv2_sys::LV2_Worker_Interface> {

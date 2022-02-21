@@ -148,6 +148,7 @@ impl Plugin {
             cv_inputs,
             cv_outputs,
             worker,
+            worker_interface,
             worker_to_instance_receiver,
             _worker_schedule: worker_schedule,
             _instance_to_worker_sender: instance_to_worker_sender,
@@ -207,6 +208,7 @@ pub struct Instance {
     cv_inputs: Vec<PortIndex>,
     cv_outputs: Vec<PortIndex>,
     worker: Option<worker::Worker>,
+    worker_interface: Option<lv2_sys::LV2_Worker_Interface>,
     worker_to_instance_receiver: worker::WorkerMessageReceiver,
     _worker_schedule: Box<lv2_sys::LV2_Worker_Schedule>,
     _instance_to_worker_sender: Box<worker::WorkerMessageSender>,
@@ -375,14 +377,13 @@ impl Instance {
         }
         self.inner.run(ports.sample_count);
 
-        let worker_interface = worker::maybe_get_worker_interface(&mut self.inner);
-        if let Some(mut interface) = worker_interface {
+        if let Some(interface) = self.worker_interface.as_mut() {
             worker::handle_work_responses(
-                &mut interface,
+                interface,
                 &mut self.worker_to_instance_receiver,
                 self.inner.instance().handle(),
             );
-            worker::end_run(&mut interface, self.inner.instance().handle());
+            worker::end_run(interface, self.inner.instance().handle());
         }
 
         Ok(())
