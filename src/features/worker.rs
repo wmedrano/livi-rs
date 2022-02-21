@@ -147,6 +147,13 @@ impl Worker {
 pub(crate) unsafe fn maybe_get_worker_interface(
     instance: &mut lilv::instance::ActiveInstance,
 ) -> Option<lv2_sys::LV2_Worker_Interface> {
+    // TODO: Remove below after
+    // https://github.com/poidl/lv2_raw/issues/4 is fixed.
+    let descriptor = instance.instance().descriptor().unwrap();
+    type ExtDataFn = extern "C" fn(uri: *const u8) -> *const c_void;
+    let extension_data: Option<ExtDataFn> = std::mem::transmute(descriptor.extension_data);
+    extension_data?;
+    // Delete up to here.
     Some(
         *instance
             .instance()
