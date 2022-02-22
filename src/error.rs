@@ -18,8 +18,6 @@ pub enum InitializeBlockLengthError {
 pub enum InstantiateError {
     /// An error ocurred, but it is not known why.
     UnknownError,
-    /// `World::initialize_block_length` has not yet been called.
-    BlockLengthNotInitialized,
 }
 
 /// An error that occurs when dealing with atom events.

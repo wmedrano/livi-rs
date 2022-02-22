@@ -3,12 +3,13 @@ use std::boxed::Box;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+use crate::features::Features;
 use crate::{
     error::{InstantiateError, RunError},
     event::LV2AtomSequence,
-    features::{worker, BOUNDED_BLOCK_LENGTH},
+    features::worker,
     port::{DataType, IOType},
-    Port, PortConnections, PortCounts, PortIndex, PortType, Resources,
+    CommonUris, Port, PortConnections, PortCounts, PortIndex, PortType,
 };
 use lv2_raw::LV2Feature;
 
@@ -16,14 +17,14 @@ use lv2_raw::LV2Feature;
 #[derive(Clone)]
 pub struct Plugin {
     pub(crate) inner: lilv::plugin::Plugin,
-    pub(crate) resources: Arc<Resources>,
+    pub(crate) common_uris: Arc<CommonUris>,
     port_counts: PortCounts,
 }
 
 impl Plugin {
-    pub(crate) fn from_raw(plugin: lilv::plugin::Plugin, resources: Arc<Resources>) -> Plugin {
+    pub(crate) fn from_raw(plugin: lilv::plugin::Plugin, common_uris: Arc<CommonUris>) -> Plugin {
         let mut port_counts = PortCounts::default();
-        for port in iter_ports_impl(&plugin, &resources) {
+        for port in iter_ports_impl(&plugin, &common_uris) {
             match port.port_type {
                 PortType::ControlInput => port_counts.control_inputs += 1,
                 PortType::ControlOutput => port_counts.control_outputs += 1,
@@ -37,7 +38,7 @@ impl Plugin {
         }
         Plugin {
             inner: plugin,
-            resources,
+            common_uris,
             port_counts,
         }
     }
@@ -61,14 +62,13 @@ impl Plugin {
     ///
     /// # Safety
     /// Running plugin code is unsafe.
-    ///
-    /// # Panics
-    /// Panics if the world resource mutex could not be locked.
-    pub unsafe fn instantiate(&self, sample_rate: f64) -> Result<Instance, InstantiateError> {
-        let features = self.resources.features.lock().unwrap();
-        let (min_block_size, max_block_size) = features
-            .min_and_max_block_length
-            .ok_or(InstantiateError::BlockLengthNotInitialized)?;
+    pub unsafe fn instantiate(
+        &self,
+        features: Arc<Features>,
+        sample_rate: f64,
+    ) -> Result<Instance, InstantiateError> {
+        let min_block_size = features.min_block_length();
+        let max_block_size = features.max_block_length();
 
         let (instance_to_worker_sender, instance_to_worker_receiver) = worker::instantiate_queue();
         let (worker_to_instance_sender, worker_to_instance_receiver) = worker::instantiate_queue();
@@ -87,33 +87,32 @@ impl Plugin {
         };
         let worker_schedule = Box::from_raw(worker_schedule);
 
-        let features = std::iter::once(features.urid_map.as_urid_map_feature())
-            .chain(std::iter::once(features.urid_map.as_urid_unmap_feature()))
-            .chain(std::iter::once(features.options.as_feature()))
-            .chain(std::iter::once(&BOUNDED_BLOCK_LENGTH))
+        let iter_features = features
+            .iter_features()
             .chain(std::iter::once(&worker_feature));
 
         let instance = self
             .inner
-            .instantiate(sample_rate, features)
+            .instantiate(sample_rate, iter_features)
             .ok_or(InstantiateError::UnknownError)?;
 
         let mut inner = instance.activate();
 
-        let worker_interface =
-            worker::maybe_get_worker_interface(&self.inner, &self.resources, &mut inner);
-
         #[allow(clippy::mutex_atomic)]
         let is_alive = Arc::new(Mutex::new(true));
-        let worker = worker_interface.map(|interface| {
-            worker::Worker::new(
+
+        let worker_interface =
+            worker::maybe_get_worker_interface(&self.inner, &self.common_uris, &mut inner);
+        if let Some(worker_interface) = worker_interface.as_ref() {
+            let worker = worker::Worker::new(
                 is_alive.clone(),
-                interface,
+                *worker_interface,
                 inner.instance().handle(),
                 instance_to_worker_receiver,
                 worker_to_instance_sender,
-            )
-        });
+            );
+            features.worker_manager().add_worker(worker);
+        }
 
         let mut control_inputs = Vec::new();
         let mut control_outputs = Vec::new();
@@ -148,18 +147,18 @@ impl Plugin {
             atom_sequence_outputs,
             cv_inputs,
             cv_outputs,
-            worker,
             worker_interface,
             worker_to_instance_receiver,
             _worker_schedule: worker_schedule,
             _instance_to_worker_sender: instance_to_worker_sender,
             is_alive,
+            _features: features,
         })
     }
 
     /// Iterate over all ports for the plugin.
     pub fn ports(&self) -> impl '_ + Iterator<Item = Port> {
-        iter_ports_impl(&self.inner, &self.resources)
+        iter_ports_impl(&self.inner, &self.common_uris)
     }
 
     /// Get the number of ports for each type of port.
@@ -208,12 +207,12 @@ pub struct Instance {
     atom_sequence_outputs: Vec<PortIndex>,
     cv_inputs: Vec<PortIndex>,
     cv_outputs: Vec<PortIndex>,
-    worker: Option<worker::Worker>,
     worker_interface: Option<lv2_sys::LV2_Worker_Interface>,
     worker_to_instance_receiver: worker::WorkerMessageReceiver,
     _worker_schedule: Box<lv2_sys::LV2_Worker_Schedule>,
     _instance_to_worker_sender: Box<worker::WorkerMessageSender>,
     is_alive: Arc<Mutex<bool>>,
+    _features: Arc<Features>,
 }
 
 unsafe impl Send for Instance {}
@@ -417,15 +416,6 @@ impl Instance {
             cv_outputs: self.port_counts_for_type(PortType::CVOutput),
         }
     }
-
-    /// Returns this instance's worker. There is only
-    /// one worker and you can only retrieve it once.
-    /// Grab the worker before you send the plugin
-    /// instance to the realtime thread and hold
-    /// onto it to perform work asynchronously.
-    pub fn take_worker(&mut self) -> Option<worker::Worker> {
-        self.worker.take()
-    }
 }
 
 impl Drop for Instance {
@@ -437,23 +427,23 @@ impl Drop for Instance {
 
 fn iter_ports_impl<'a>(
     plugin: &'a lilv::plugin::Plugin,
-    resources: &'a Resources,
+    common_uris: &'a CommonUris,
 ) -> impl 'a + Iterator<Item = Port> {
     plugin.iter_ports().map(move |p| {
-        let io_type = if p.is_a(&resources.input_port_uri) {
+        let io_type = if p.is_a(&common_uris.input_port_uri) {
             IOType::Input
-        } else if p.is_a(&resources.output_port_uri) {
+        } else if p.is_a(&common_uris.output_port_uri) {
             IOType::Output
         } else {
             unreachable!("Port is neither input or output.")
         };
-        let data_type = if p.is_a(&resources.audio_port_uri) {
+        let data_type = if p.is_a(&common_uris.audio_port_uri) {
             DataType::Audio
-        } else if p.is_a(&resources.control_port_uri) {
+        } else if p.is_a(&common_uris.control_port_uri) {
             DataType::Control
-        } else if p.is_a(&resources.atom_port_uri) {
+        } else if p.is_a(&common_uris.atom_port_uri) {
             DataType::AtomSequence
-        } else if p.is_a(&resources.cv_port_uri) {
+        } else if p.is_a(&common_uris.cv_port_uri) {
             DataType::CV
         } else {
             unreachable!("Port is not an audio, control, or atom sequence port.")
@@ -500,19 +490,21 @@ mod tests {
     fn output_buffer_too_small_produces_error() {
         let block_size = 1024;
         let sample_rate = 44100.0;
-        let mut world = crate::World::new();
-        world
-            .initialize_block_length(block_size, block_size)
-            .unwrap();
+        let world = crate::World::new();
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
+        let features = world.build_features(crate::features::FeaturesBuilder {
+            min_block_length: block_size,
+            max_block_length: block_size,
+            worker_manager: Default::default(),
+        });
         let mut instance = unsafe {
             plugin
-                .instantiate(sample_rate)
+                .instantiate(features.clone(), sample_rate)
                 .expect("Could not instantiate plugin.")
         };
-        let input = crate::event::LV2AtomSequence::new(&world, 1024);
+        let input = crate::event::LV2AtomSequence::new(&features, 1024);
         let params: Vec<f32> = plugin
             .ports_with_type(crate::PortType::ControlInput)
             .map(|p| p.default_value)
@@ -537,18 +529,20 @@ mod tests {
 
     #[test]
     fn sample_count_smaller_than_supported_block_size_produces_error() {
-        let mut world = crate::World::new();
+        let world = crate::World::new();
         let supported_block_size = (512, 1024);
         let lower_than_supported_block_size = 256;
-        world
-            .initialize_block_length(supported_block_size.0, supported_block_size.1)
-            .unwrap();
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
+        let features = world.build_features(crate::features::FeaturesBuilder {
+            min_block_length: supported_block_size.0,
+            max_block_length: supported_block_size.1,
+            worker_manager: Default::default(),
+        });
         let mut instance = unsafe {
             plugin
-                .instantiate(44100.0)
+                .instantiate(features, 44100.0)
                 .expect("Could not instantiate plugin.")
         };
         let ports = crate::EmptyPortConnections::new(lower_than_supported_block_size);
@@ -563,18 +557,20 @@ mod tests {
 
     #[test]
     fn sample_count_larger_than_supported_block_size_produces_error() {
-        let mut world = crate::World::new();
+        let world = crate::World::new();
         let supported_block_size = (512, 1024);
         let higher_than_supported_block_size = 2048;
-        world
-            .initialize_block_length(supported_block_size.0, supported_block_size.1)
-            .unwrap();
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
+        let features = world.build_features(crate::features::FeaturesBuilder {
+            min_block_length: supported_block_size.0,
+            max_block_length: supported_block_size.1,
+            worker_manager: Default::default(),
+        });
         let mut instance = unsafe {
             plugin
-                .instantiate(44100.0)
+                .instantiate(features, 44100.0)
                 .expect("Could not instantiate plugin.")
         };
         let ports = crate::EmptyPortConnections::new(higher_than_supported_block_size);

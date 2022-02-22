@@ -1,52 +1,61 @@
 //! livi is a library for hosting LV2 plugins in Rust.
 //! ```
-//! use livi;
-//!
-//! let mut world = livi::World::new();
-//! const MIN_BLOCK_SIZE: usize = 1;
-//! const MAX_BLOCK_SIZE: usize = 256;
+//! let world = livi::World::new();
 //! const SAMPLE_RATE: f64 = 44100.0;
-//! world
-//!     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
-//!     .unwrap();
-//! let mut worker_manager = livi::WorkerManager::default();
+//! let worker_manager = std::sync::Arc::new(livi::WorkerManager::default());
+//! let features = world.build_features(livi::FeaturesBuilder {
+//! min_block_length: 1,
+//! max_block_length: 4096,
+//! worker_manager: worker_manager.clone(),
+//! });
 //! let plugin = world
-//!     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
-//!     .expect("Plugin not found.");
+//! // This is the URI for mda EPiano. You can use the `lv2ls` command line
+//! // utility to see all available LV2 plugins.
+//! .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+//! .expect("Plugin not found.");
 //! let mut instance = unsafe {
-//!     plugin
-//!         .instantiate(SAMPLE_RATE)
-//!         .expect("Could not instantiate plugin.")
+//! plugin
+//! .instantiate(features.clone(), SAMPLE_RATE)
+//! .expect("Could not instantiate plugin.")
 //! };
-//! if let Some(worker) = instance.take_worker() {
-//!     worker_manager.add_worker(worker);
-//! }
+//!
+//! // Where midi events will be read from.
 //! let input = {
-//!     let mut s = livi::event::LV2AtomSequence::new(&world, 1024);
-//!     let play_note_data = [0x90, 0x40, 0x7f];
-//!     s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
-//!         .unwrap();
-//!     s
+//! let mut s = livi::event::LV2AtomSequence::new(&features, 1024);
+//! let play_note_data = [0x90, 0x40, 0x7f];
+//! s.push_midi_event::<3>(1, features.midi_urid(), &play_note_data)
+//! .unwrap();
+//! s
 //! };
+//!
+//! // Where parameters can be set. We initialize to the plugin's default values.
 //! let params: Vec<f32> = plugin
-//!     .ports_with_type(livi::PortType::ControlInput)
-//!     .map(|p| p.default_value)
-//!     .collect();
-//! let mut outputs = [vec![0.0; MAX_BLOCK_SIZE], vec![0.0; MAX_BLOCK_SIZE]];
-//! let ports = livi::EmptyPortConnections::new(MAX_BLOCK_SIZE)
-//!     .with_atom_sequence_inputs(std::iter::once(&input))
-//!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
-//!     .with_control_inputs(params.iter());
+//! .ports_with_type(livi::PortType::ControlInput)
+//! .map(|p| p.default_value)
+//! .collect();
+//! // This is where the audio data will be stored.
+//! let mut outputs = [
+//! vec![0.0; features.max_block_length()], // For mda EPiano, this is the left channel.
+//! vec![0.0; features.max_block_length()], // For mda EPiano, this is the right channel.
+//! ];
+//!
+//! // Set up the port configuration and run the plugin!
+//! // The results will be stored in `outputs`.
+//! let ports = livi::EmptyPortConnections::new(features.max_block_length())
+//! .with_atom_sequence_inputs(std::iter::once(&input))
+//! .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
+//! .with_control_inputs(params.iter());
 //! unsafe { instance.run(ports).unwrap() };
-//! // When running in realtime, `do_worker` should be called in a separate thread.
+//!
+//! // Plugins may push asynchronous works to the worker. When operating in
+//! // Realtime, `run_workers` should be run in a separate thread.
 //! worker_manager.run_workers();
 //! ```
-use crate::error::InitializeBlockLengthError;
-use crate::features::Features;
 use log::{debug, error, info, warn};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub use features::worker::{Worker, WorkerManager};
+pub use features::{Features, FeaturesBuilder};
 pub use plugin::{Instance, Plugin};
 pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
 
@@ -60,7 +69,6 @@ mod port;
 
 /// Contains all plugins.
 pub struct World {
-    resources: Arc<Resources>,
     livi_plugins: Vec<Plugin>,
 }
 
@@ -68,9 +76,6 @@ impl World {
     /// Create a new world that includes all plugins that are found and are
     /// supported.  Plugins that are not supported will be listed with a `warn!`
     /// message.
-    ///
-    /// # Panics
-    /// Panics if the world resources mutex could not be locked.
     #[must_use]
     pub fn new() -> World {
         World::with_plugin_predicate(|_| true)
@@ -84,15 +89,14 @@ impl World {
         let world = lilv::World::new();
         let uri = world.new_uri(bundle_uri);
         world.load_bundle(&uri);
-        let resources = Arc::new(Resources::new(&world));
+        let common_uris = Arc::new(CommonUris::new(&world));
         let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
-            .map(|p| Plugin::from_raw(p, resources.clone()))
+            .map(|p| Plugin::from_raw(p, common_uris.clone()))
             .collect();
 
         World {
-            resources,
             livi_plugins: plugins,
         }
     }
@@ -105,8 +109,8 @@ impl World {
         P: Fn(&Plugin) -> bool,
     {
         let world = lilv::World::with_load_all();
-        let resources = Arc::new(Resources::new(&world));
-        let supported_features = resources.features.lock().unwrap().supported_features();
+        let common_uris = Arc::new(CommonUris::new(&world));
+        let supported_features = crate::Features::supported_features();
         info!(
             "Creating World with supported features {:?}",
             supported_features
@@ -142,19 +146,19 @@ impl World {
             .filter(|p| {
                 for port in p.iter_ports() {
                     for class in port.classes() {
-                        if class != resources.input_port_uri
-                            && class != resources.output_port_uri
-                            && class != resources.audio_port_uri
-                            && class != resources.control_port_uri
-                            && class != resources.atom_port_uri
-                            && class != resources.cv_port_uri
+                        if class != common_uris.input_port_uri
+                            && class != common_uris.output_port_uri
+                            && class != common_uris.audio_port_uri
+                            && class != common_uris.control_port_uri
+                            && class != common_uris.atom_port_uri
+                            && class != common_uris.cv_port_uri
                         {
                             error!("Port class {:?} is not supported.", class);
                             return false;
                         }
                     }
-                    if !port.is_a(&resources.input_port_uri)
-                        && !port.is_a(&resources.output_port_uri)
+                    if !port.is_a(&common_uris.input_port_uri)
+                        && !port.is_a(&common_uris.output_port_uri)
                     {
                         error!(
                             "Port {:?} for plugin {} is neither an input or output.",
@@ -163,7 +167,7 @@ impl World {
                         );
                         return false;
                     }
-                    if !port.is_a(&resources.audio_port_uri) && !port.is_a(&resources.control_port_uri) && !port.is_a(&resources.atom_port_uri) && !port.is_a(&resources.cv_port_uri) {
+                    if !port.is_a(&common_uris.audio_port_uri) && !port.is_a(&common_uris.control_port_uri) && !port.is_a(&common_uris.atom_port_uri) && !port.is_a(&common_uris.cv_port_uri) {
                         error!(
                             "Port {:?}for plugin {} not a recognized data type. Supported types are Audio and Control", port, p.uri().as_str().unwrap_or("BAD_URI")
                         );
@@ -172,7 +176,7 @@ impl World {
                 }
                 true
             })
-            .map(|p| Plugin::from_raw(p, resources.clone()))
+            .map(|p| Plugin::from_raw(p, common_uris.clone()))
             .filter(|p| {
                 let keep = predicate(p);
                 if !keep {
@@ -183,33 +187,8 @@ impl World {
             .inspect(|p| info!("Found plugin {}: {}", p.name(), p.uri()))
             .collect();
         World {
-            resources,
             livi_plugins: plugins,
         }
-    }
-
-    /// Get the URID of a URI. This value is only guaranteed to be valid for
-    /// instances spawned from this world. It is not guaranteed to be stable
-    /// across different runs.
-    ///
-    /// # Panics
-    /// Panics if the world resource mutex could not be locked.
-    #[must_use]
-    pub fn urid(&self, uri: &std::ffi::CStr) -> lv2_raw::LV2Urid {
-        self.resources.features.lock().unwrap().urid_map.map(uri)
-    }
-
-    /// The URID for midi events.
-    ///
-    /// # Panics
-    /// Panics if a `CStr` could not be built for the Midi URI. This behavior is
-    /// well tested and of negligible risk.
-    #[must_use]
-    pub fn midi_urid(&self) -> lv2_raw::LV2Urid {
-        self.urid(
-            std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/midi#MidiEvent\0")
-                .unwrap(),
-        )
     }
 
     /// Iterate through all plugins.
@@ -229,19 +208,8 @@ impl World {
     ///
     /// # Errors
     /// Returns an error if the block lengths are invalid.
-    ///
-    /// # Panics
-    /// Panics if the world resource mutex could not be locked.
-    pub fn initialize_block_length(
-        &mut self,
-        min_block_length: usize,
-        max_block_length: usize,
-    ) -> Result<(), InitializeBlockLengthError> {
-        self.resources
-            .features
-            .lock()
-            .unwrap()
-            .initialize_block_length(min_block_length, max_block_length)
+    pub fn build_features(&self, builder: crate::features::FeaturesBuilder) -> Arc<Features> {
+        builder.build(self)
     }
 }
 
@@ -251,7 +219,7 @@ impl Default for World {
     }
 }
 
-struct Resources {
+struct CommonUris {
     input_port_uri: lilv::node::Node,
     output_port_uri: lilv::node::Node,
     control_port_uri: lilv::node::Node,
@@ -259,12 +227,11 @@ struct Resources {
     atom_port_uri: lilv::node::Node,
     cv_port_uri: lilv::node::Node,
     worker_schedule_feature_uri: lilv::node::Node,
-    features: Mutex<Features>,
 }
 
-impl Resources {
-    fn new(world: &lilv::World) -> Resources {
-        Resources {
+impl CommonUris {
+    fn new(world: &lilv::World) -> CommonUris {
+        CommonUris {
             input_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#InputPort"),
             output_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#OutputPort"),
             control_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#ControlPort"),
@@ -272,7 +239,6 @@ impl Resources {
             atom_port_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#AtomPort"),
             cv_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#CVPort"),
             worker_schedule_feature_uri: world.new_uri("http://lv2plug.in/ns/ext/worker#schedule"),
-            features: Mutex::new(Features::new()),
         }
     }
 }
@@ -292,16 +258,23 @@ mod tests {
     #[test]
     fn test_midi_urid_ok() {
         let world = World::new();
-        assert!(world.midi_urid() > 0, "midi urid is not valid");
+        let features = world.build_features(crate::features::FeaturesBuilder {
+            min_block_length: MIN_BLOCK_SIZE,
+            max_block_length: MAX_BLOCK_SIZE,
+            worker_manager: Default::default(),
+        });
+        assert!(features.midi_urid() > 0, "midi urid is not valid");
     }
 
     #[test]
     fn test_all() {
-        let mut world = World::new();
+        let world = World::new();
         let block_size = 64;
-        world
-            .initialize_block_length(block_size, block_size)
-            .unwrap();
+        let features = world.build_features(crate::features::FeaturesBuilder {
+            min_block_length: block_size,
+            max_block_length: block_size,
+            worker_manager: Default::default(),
+        });
         for plugin in world.iter_plugins() {
             let port_counts = *plugin.port_counts();
             let in_params: Vec<f32> = plugin
@@ -318,22 +291,28 @@ mod tests {
             let mut cv_out = vec![0.0; port_counts.cv_outputs * block_size];
             let play_note_data = [0x90, 0x40, 0x7f];
             let release_note_data = [0x80, 0x40, 0x00];
+            let input_events_features = features.clone();
             let input_events = (0..port_counts.atom_sequence_inputs)
                 .map(|_| {
-                    let mut seq = LV2AtomSequence::new(&world, 1024);
-                    seq.push_midi_event::<3>(4, world.midi_urid(), &play_note_data)
+                    let mut seq = LV2AtomSequence::new(&input_events_features, 1024);
+                    seq.push_midi_event::<3>(4, input_events_features.midi_urid(), &play_note_data)
                         .unwrap();
-                    seq.push_midi_event::<3>(60, world.midi_urid(), &release_note_data)
-                        .unwrap();
+                    seq.push_midi_event::<3>(
+                        60,
+                        input_events_features.midi_urid(),
+                        &release_note_data,
+                    )
+                    .unwrap();
                     seq
                 })
                 .collect::<Vec<_>>();
+            let output_events_features = features.clone();
             let mut output_events = (0..port_counts.atom_sequence_outputs)
-                .map(|_| LV2AtomSequence::new(&world, 1024))
+                .map(|_| LV2AtomSequence::new(&output_events_features, 1024))
                 .collect::<Vec<_>>();
             let mut instance = unsafe {
                 plugin
-                    .instantiate(SAMPLE_RATE)
+                    .instantiate(features.clone(), SAMPLE_RATE)
                     .expect("Could not instantiate plugin.")
             };
             let ports = PortConnections {
@@ -367,10 +346,7 @@ mod tests {
 
     #[test]
     fn test_mda_epiano() {
-        let mut world = World::new();
-        world
-            .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
-            .unwrap();
+        let world = World::new();
         let plugin = world
             // Electric Piano instrument.
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
@@ -388,9 +364,14 @@ mod tests {
                 cv_outputs: 0,
             }
         );
+        let features = world.build_features(FeaturesBuilder {
+            min_block_length: MIN_BLOCK_SIZE,
+            max_block_length: MAX_BLOCK_SIZE,
+            worker_manager: Default::default(),
+        });
         let mut instance = unsafe {
             plugin
-                .instantiate(SAMPLE_RATE)
+                .instantiate(features.clone(), SAMPLE_RATE)
                 .expect("Could not instantiate plugin.")
         };
         assert_eq!(
@@ -407,9 +388,9 @@ mod tests {
             }
         );
         let input = {
-            let mut s = LV2AtomSequence::new(&world, 1024);
+            let mut s = LV2AtomSequence::new(&features, 1024);
             let play_note_data = [0x90, 0x40, 0x7f];
-            s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
+            s.push_midi_event::<3>(1, features.midi_urid(), &play_note_data)
                 .unwrap();
             s
         };
@@ -435,11 +416,8 @@ mod tests {
 
     #[test]
     fn test_fifths() {
-        let mut world = World::new();
+        let world = World::new();
         let block_size = 128;
-        world
-            .initialize_block_length(block_size, block_size)
-            .unwrap();
         let plugin = world
             // Takes a midi and adds the fifth of every note.
             .plugin_by_uri("http://lv2plug.in/plugins/eg-fifths")
@@ -457,9 +435,14 @@ mod tests {
                 cv_outputs: 0,
             }
         );
+        let features = world.build_features(FeaturesBuilder {
+            min_block_length: block_size,
+            max_block_length: block_size,
+            worker_manager: Default::default(),
+        });
         let mut instance = unsafe {
             plugin
-                .instantiate(SAMPLE_RATE)
+                .instantiate(features.clone(), SAMPLE_RATE)
                 .expect("Could not instantiate plugin.")
         };
 
@@ -469,18 +452,18 @@ mod tests {
         let release_c4 = [0x80, 0x3C, 0x00];
         let release_g4 = [0x80, 0x43, 0x00];
 
-        let mut input = LV2AtomSequence::new(&world, 1024);
+        let mut input = LV2AtomSequence::new(&features, 1024);
         input
-            .push_midi_event::<3>(1, world.midi_urid(), &play_c4)
+            .push_midi_event::<3>(1, features.midi_urid(), &play_c4)
             .unwrap();
         input
-            .push_midi_event::<3>(10, world.midi_urid(), &release_c4)
+            .push_midi_event::<3>(10, features.midi_urid(), &release_c4)
             .unwrap();
 
-        let mut output = LV2AtomSequence::new(&world, 1024);
+        let mut output = LV2AtomSequence::new(&features, 1024);
         // This note should be cleared from the output by the LV2 plugin.
         output
-            .push_midi_event::<3>(1, world.midi_urid(), &play_c3)
+            .push_midi_event::<3>(1, features.midi_urid(), &play_c3)
             .unwrap();
 
         for _ in 0..10 {
@@ -528,12 +511,7 @@ mod tests {
 
     #[test]
     fn test_supported_features() {
-        let supported_features = World::new()
-            .resources
-            .features
-            .lock()
-            .unwrap()
-            .supported_features();
+        let supported_features = Features::supported_features();
 
         assert!(supported_features.contains("http://lv2plug.in/ns/ext/urid#map"));
 

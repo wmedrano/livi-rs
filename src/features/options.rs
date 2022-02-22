@@ -24,16 +24,16 @@ unsafe impl Send for Options {}
 
 impl Options {
     pub fn new() -> Options {
-        let mut data = vec![EMPTY_OPTION];
-        let data_ptr = data.as_mut_ptr();
-        Options {
-            data,
+        let mut options = Options {
+            data: vec![EMPTY_OPTION],
             values: HashMap::new(),
             feature: LV2Feature {
                 uri: OPTIONS_FEATURE_URI.as_ptr().cast(),
-                data: data_ptr.cast(),
+                data: std::ptr::null_mut(),
             },
-        }
+        };
+        options.feature.data = options.data.as_mut_ptr().cast();
+        options
     }
 
     pub fn as_feature(&self) -> &LV2Feature {
@@ -69,7 +69,6 @@ impl Options {
         self.data.pop(); // Remove the last `EMPTY_OPTION`.
         self.data.push(option);
         self.data.push(EMPTY_OPTION);
-        let data_ptr = self.data.as_mut_ptr();
-        self.feature.data = data_ptr.cast();
+        self.feature.data = self.data.as_mut_ptr().cast();
     }
 }
