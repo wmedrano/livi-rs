@@ -44,6 +44,9 @@ let mut instance = unsafe {
         .instantiate(features.clone(), SAMPLE_RATE)
         .expect("Could not instantiate plugin.")
 };
+if let Some(worker) = instance.take_worker() {
+    worker_manager.add_worker(worker);
+}
 
 // Where midi events will be read from.
 let input = {
