@@ -35,9 +35,10 @@
 // thread while the worker will be run in a non-realtime thread.
 
 use livi::event::{LV2AtomEventBuilder, LV2AtomSequence};
-use livi::{EmptyPortConnections, Instance, WorkerManager, World};
+use livi::{EmptyPortConnections, Features, Instance, WorkerManager, World};
 use std::ffi::CStr;
 use std::mem::size_of;
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 const MIN_BLOCK_SIZE: usize = 1;
@@ -80,10 +81,10 @@ struct SetSamplerMessage(lv2_sys::LV2_Atom_Object_Body, PatchValue, PatchPropert
 // Some helper functions
 fn run_instance_with_input_sequence(
     instance: &mut Instance,
-    world: &mut World,
+    features: &Features,
     input: LV2AtomSequence,
 ) -> [Vec<f32>; 1] {
-    let mut output_events = LV2AtomSequence::new(world, 1024);
+    let mut output_events = LV2AtomSequence::new(features, 1024);
     let mut outputs = [vec![0.0; MAX_BLOCK_SIZE]];
 
     let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
@@ -98,28 +99,28 @@ fn run_instance_with_input_sequence(
 
 fn run_instance_with_single_midi_note_input(
     instance: &mut Instance,
-    world: &mut World,
+    features: &Features,
 ) -> [Vec<f32>; 1] {
     let input = {
-        let mut s = LV2AtomSequence::new(world, 1024);
+        let mut s = LV2AtomSequence::new(features, 1024);
         let play_note_data = [0x90, 0x40, 0x7f];
-        s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
+        s.push_midi_event::<3>(1, features.midi_urid(), &play_note_data)
             .unwrap();
         s
     };
-    run_instance_with_input_sequence(instance, world, input)
+    run_instance_with_input_sequence(instance, features, input)
 }
 
-fn build_sampler_message(world: &mut World, sample_filepath: &str) -> SetSamplerMessage {
-    let eg_sample_urid = world
+fn build_sampler_message(features: &Features, sample_filepath: &str) -> SetSamplerMessage {
+    let eg_sample_urid = features
         .urid(CStr::from_bytes_with_nul(b"http://lv2plug.in/plugins/eg-sampler#sample\0").unwrap());
-    let urid_urid = world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__URID).unwrap());
+    let urid_urid = features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__URID).unwrap());
     let patch_property_urid =
-        world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__property).unwrap());
+        features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__property).unwrap());
     let patch_value_urid =
-        world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__value).unwrap());
-    let patch_set_urid = world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__Set).unwrap());
-    let path_urid = world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Path).unwrap());
+        features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__value).unwrap());
+    let patch_set_urid = features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__Set).unwrap());
+    let path_urid = features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Path).unwrap());
 
     let mut path = [0_u8; MAX_PATH_SIZE];
     path[..sample_filepath.len()].copy_from_slice(sample_filepath.as_bytes());
@@ -178,33 +179,30 @@ fn test_sampler() {
     let header = wav::Header::new(wav::header::WAV_FORMAT_PCM, 1, SAMPLE_RATE as u32, 32);
     wav::write(header, &sample, &mut out_file).unwrap();
 
-    let mut world = World::with_load_bundle("file:///usr/lib/lv2/eg-sampler.lv2/");
-    world
-        .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
-        .unwrap();
+    let world = World::with_load_bundle("file:///usr/lib/lv2/eg-sampler.lv2/");
     let plugin = world
         .plugin_by_uri("http://lv2plug.in/plugins/eg-sampler")
         .expect("Plugin not found.");
+    let worker_manager = Arc::new(WorkerManager::default());
+    let features = world.build_features(livi::FeaturesBuilder {
+        min_block_length: MIN_BLOCK_SIZE,
+        max_block_length: MAX_BLOCK_SIZE,
+        worker_manager: worker_manager.clone(),
+    });
     let mut instance = unsafe {
         plugin
-            .instantiate(SAMPLE_RATE)
+            .instantiate(features.clone(), SAMPLE_RATE)
             .expect("Could not instantiate plugin.")
     };
 
-    let mut worker_manager = WorkerManager::default();
-
-    if let Some(worker) = instance.take_worker() {
-        worker_manager.add_worker(worker);
-    }
-
-    let outputs = run_instance_with_single_midi_note_input(&mut instance, &mut world);
+    let outputs = run_instance_with_single_midi_note_input(&mut instance, &features);
     assert_silence(outputs);
 
-    let message = build_sampler_message(&mut world, out_file.path().to_str().unwrap());
-    let object_urid = world.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Object).unwrap());
+    let message = build_sampler_message(&features, out_file.path().to_str().unwrap());
+    let object_urid = features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Object).unwrap());
 
     let input = {
-        let mut sequence = LV2AtomSequence::new(&world, 1024);
+        let mut sequence = LV2AtomSequence::new(&features, 1024);
         let m = &message as *const SetSamplerMessage as *const u8;
         let slice: &[u8] = unsafe { std::slice::from_raw_parts(m, size_of::<SetSamplerMessage>()) };
         let event = LV2AtomEventBuilder::<512>::new(0, object_urid, slice).unwrap();
@@ -212,15 +210,15 @@ fn test_sampler() {
         sequence
     };
 
-    let outputs = run_instance_with_input_sequence(&mut instance, &mut world, input);
+    let outputs = run_instance_with_input_sequence(&mut instance, &features, input);
     assert_silence(outputs);
 
     worker_manager.run_workers();
 
-    let outputs = run_instance_with_single_midi_note_input(&mut instance, &mut world);
+    let outputs = run_instance_with_single_midi_note_input(&mut instance, &features);
     assert_silence(outputs);
 
-    let outputs = run_instance_with_single_midi_note_input(&mut instance, &mut world);
+    let outputs = run_instance_with_single_midi_note_input(&mut instance, &features);
     // There is now audio content
     // in the outputs, indicating
     // that the sample file was loaded

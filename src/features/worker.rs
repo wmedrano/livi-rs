@@ -147,10 +147,10 @@ impl Worker {
 // Not real-time safe.
 pub(crate) unsafe fn maybe_get_worker_interface(
     plugin: &lilv::plugin::Plugin,
-    resources: &crate::Resources,
+    common_uris: &crate::CommonUris,
     instance: &mut lilv::instance::ActiveInstance,
 ) -> Option<lv2_sys::LV2_Worker_Interface> {
-    if !plugin.has_feature(&resources.worker_schedule_feature_uri) {
+    if !plugin.has_feature(&common_uris.worker_schedule_feature_uri) {
         return None;
     }
     // TODO: Remove below after
@@ -197,52 +197,63 @@ pub(crate) fn end_run(
     }
 }
 
-/// Use a WorkerManager to own and run
-/// Workers. The WorkerManager will drop
-/// workers automatically once their associated
-/// plugin Instance has been dropped.
+/// Use a WorkerManager to own and run Workers. The WorkerManager will drop
+/// workers automatically once their associated plugin Instance has been
+/// dropped.
 ///
 /// #### Example usage:
 /// ```
 /// # use livi;
 ///
-/// # let mut world = livi::World::new();
+/// # let world = livi::World::new();
 /// # const MIN_BLOCK_SIZE: usize = 1;
 /// # const MAX_BLOCK_SIZE: usize = 256;
 /// # const SAMPLE_RATE: f64 = 44100.0;
-/// # world
-/// #     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
-/// #     .unwrap();
 /// # let plugin = world
 /// #     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
 /// #     .expect("Plugin not found.");
+/// let worker_manager = std::sync::Arc::new(livi::WorkerManager::default());
+/// let features = world.build_features(livi::FeaturesBuilder{
+///     min_block_length: MIN_BLOCK_SIZE,
+///     max_block_length: MAX_BLOCK_SIZE,
+///     worker_manager: worker_manager.clone(),
+/// });
 /// let mut instance = unsafe {
 ///     plugin
-///         .instantiate(SAMPLE_RATE)
+///         .instantiate(features.clone(), SAMPLE_RATE)
 ///         .expect("Could not instantiate plugin.")
 /// };
-///
-/// let mut worker_manager = livi::WorkerManager::default();
-/// if let Some(worker) = instance.take_worker() {
-///     worker_manager.add_worker(worker);
-/// }
 ///
 /// // Call this periodically to drive workers.
 /// worker_manager.run_workers();
 /// ```
 #[derive(Default)]
 pub struct WorkerManager {
-    workers: std::vec::Vec<Worker>,
+    new_workers: Mutex<Vec<Worker>>,
+    // Workers that may be in the process of running are kept in a different
+    // variable to prevent blocking when adding new workers.
+    running_workers: Mutex<Vec<Worker>>,
 }
 
 impl WorkerManager {
-    pub fn add_worker(&mut self, worker: Worker) {
-        self.workers.push(worker);
+    /// Run all the workers that have been added and are alive. This function
+    /// should not be run in the Realtime thread. Additionally, there is no
+    /// benefit to running it in parallel as concurrency is limited to 1 worker
+    /// at a time.
+    pub fn run_workers(&self) {
+        let mut workers = self.running_workers.lock().unwrap();
+        workers.extend(self.new_workers.lock().unwrap().drain(..));
+        workers.iter_mut().for_each(|worker| worker.do_work());
+        workers.retain(|worker| worker.should_keep_working());
     }
 
-    pub fn run_workers(&mut self) {
-        self.workers.iter_mut().for_each(|worker| worker.do_work());
-        self.workers.retain(|worker| worker.should_keep_working());
+    /// The number of workers that are currently alive.
+    pub fn workers_count(&self) -> usize {
+        self.running_workers.lock().unwrap().len() + self.new_workers.lock().unwrap().len()
+    }
+
+    pub(crate) fn add_worker(&self, worker: Worker) {
+        self.new_workers.lock().unwrap().push(worker);
     }
 }
 

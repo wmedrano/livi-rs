@@ -107,13 +107,13 @@ impl LV2AtomSequence {
     /// aligned to 8 bytes which means the sizes are always rounded up to the
     /// next multiple of 8.
     #[must_use]
-    pub fn new(world: &crate::World, capacity: usize) -> LV2AtomSequence {
+    pub fn new(features: &crate::Features, capacity: usize) -> LV2AtomSequence {
         let mut seq = LV2AtomSequence {
-            atom_sequence_urid: world.urid(
+            atom_sequence_urid: features.urid(
                 std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Sequence\0")
                     .unwrap(),
             ),
-            atom_chunk_urid: world.urid(
+            atom_chunk_urid: features.urid(
                 std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Chunk\0")
                     .unwrap(),
             ),
@@ -320,14 +320,23 @@ impl<'a> Debug for LV2AtomEventWithData<'a> {
 mod tests {
     use super::*;
     use lazy_static::lazy_static;
+    use std::sync::Arc;
 
     lazy_static! {
         static ref TEST_WORLD: crate::World = crate::World::new();
     }
 
+    fn test_features() -> Arc<crate::Features> {
+        TEST_WORLD.build_features(crate::features::FeaturesBuilder {
+            min_block_length: 1024,
+            max_block_length: 1024,
+            worker_manager: Default::default(),
+        })
+    }
+
     #[test]
     fn test_sequence_push_events_and_iter_events() {
-        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 4096);
+        let mut sequence = LV2AtomSequence::new(&test_features(), 4096);
         let event = LV2AtomEventBuilder::<8>::new(0, 0, &[0, 10, 20, 30, 40, 50, 60, 70]).unwrap();
         for _ in 0..10 {
             sequence.push_event(&event).unwrap();
@@ -349,7 +358,7 @@ mod tests {
 
         let events_to_push = 1_000;
         let capacity = events_to_push * event_size;
-        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
+        let mut sequence = LV2AtomSequence::new(&test_features(), capacity);
         for _ in 0..events_to_push {
             sequence.push_event(&event).unwrap();
         }
@@ -369,7 +378,7 @@ mod tests {
         for data_size in 0..32 {
             let event = LV2AtomEventBuilder::<32>::new(0, 0, &data[..data_size]).unwrap();
             for capacity in 0..1024 {
-                let mut sequence = LV2AtomSequence::new(&TEST_WORLD, capacity);
+                let mut sequence = LV2AtomSequence::new(&test_features(), capacity);
                 while sequence.push_event(&event).is_ok() {}
                 for event in sequence.iter() {
                     assert_eq!(event.data, &data[..data_size]);
@@ -380,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 1024);
+        let mut sequence = LV2AtomSequence::new(&test_features(), 1024);
 
         sequence
             .push_event(&LV2AtomEventBuilder::new_full(0, 0, [1, 2, 3]))
@@ -393,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_clear_as_chunk() {
-        let mut sequence = LV2AtomSequence::new(&TEST_WORLD, 1024);
+        let mut sequence = LV2AtomSequence::new(&test_features(), 1024);
 
         sequence
             .push_event(&LV2AtomEventBuilder::new_full(0, 0, [1, 2, 3]))

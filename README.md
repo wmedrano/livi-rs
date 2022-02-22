@@ -26,16 +26,14 @@ out of the box.
 Below is an example on how to run the mda EPiano plugin.
 
 ```rust
-use livi;
-
-let mut world = livi::World::new();
-const MIN_BLOCK_SIZE: usize = 1;
-const MAX_BLOCK_SIZE: usize = 256;
+let world = livi::World::new();
 const SAMPLE_RATE: f64 = 44100.0;
-world
-    .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
-    .unwrap();
-let mut worker_manager = livi::WorkerManager::default();
+let worker_manager = std::sync::Arc::new(livi::WorkerManager::default());
+let features = world.build_features(livi::FeaturesBuilder {
+    min_block_length: 1,
+    max_block_length: 4096,
+    worker_manager: worker_manager.clone(),
+});
 let plugin = world
     // This is the URI for mda EPiano. You can use the `lv2ls` command line
     // utility to see all available LV2 plugins.
@@ -43,7 +41,7 @@ let plugin = world
     .expect("Plugin not found.");
 let mut instance = unsafe {
     plugin
-        .instantiate(SAMPLE_RATE)
+        .instantiate(features.clone(), SAMPLE_RATE)
         .expect("Could not instantiate plugin.")
 };
 if let Some(worker) = instance.take_worker() {
@@ -52,9 +50,9 @@ if let Some(worker) = instance.take_worker() {
 
 // Where midi events will be read from.
 let input = {
-    let mut s = livi::event::LV2AtomSequence::new(&world, 1024);
+    let mut s = livi::event::LV2AtomSequence::new(&features, 1024);
     let play_note_data = [0x90, 0x40, 0x7f];
-    s.push_midi_event::<3>(1, world.midi_urid(), &play_note_data)
+    s.push_midi_event::<3>(1, features.midi_urid(), &play_note_data)
         .unwrap();
     s
 };
@@ -66,13 +64,13 @@ let params: Vec<f32> = plugin
     .collect();
 // This is where the audio data will be stored.
 let mut outputs = [
-    vec![0.0; MAX_BLOCK_SIZE], // For mda EPiano, this is the left channel.
-    vec![0.0; MAX_BLOCK_SIZE], // For mda EPiano, this is the right channel.
+    vec![0.0; features.max_block_length()], // For mda EPiano, this is the left channel.
+    vec![0.0; features.max_block_length()], // For mda EPiano, this is the right channel.
 ];
 
 // Set up the port configuration and run the plugin!
 // The results will be stored in `outputs`.
-let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
+let ports = livi::EmptyPortConnections::new(features.max_block_length())
     .with_atom_sequence_inputs(std::iter::once(&input))
     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
     .with_control_inputs(params.iter());

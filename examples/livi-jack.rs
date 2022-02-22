@@ -3,7 +3,7 @@
 /// Run with: `cargo run --release -- --plugin-uri=${PLUGIN_URI}`
 use livi::event::LV2AtomSequence;
 use log::{debug, error, info, warn};
-use std::convert::TryFrom;
+use std::{convert::TryFrom, sync::Arc};
 use structopt::StructOpt;
 
 /// The configuration for the backend.
@@ -27,7 +27,7 @@ fn main() {
     let config = Configuration::from_args();
     env_logger::builder().filter_level(config.log_level).init();
 
-    let mut livi = livi::World::new();
+    let livi = livi::World::new();
     let plugin = livi
         .plugin_by_uri(&config.plugin_uri)
         .unwrap_or_else(|| panic!("Could not find plugin with URI {}", config.plugin_uri));
@@ -36,16 +36,14 @@ fn main() {
         jack::Client::new(&plugin.name(), jack::ClientOptions::NO_START_SERVER).unwrap();
     info!("Created jack client {:?} with status {:?}.", client, status);
 
-    livi.initialize_block_length(client.buffer_size() as usize, client.buffer_size() as usize)
-        .unwrap();
-    let (process_handler, mut worker) = Processor::new(&livi, plugin, &client);
+    let (process_handler, workers) = Processor::new(&livi, plugin, &client);
 
     // Keep reference to client to prevent it from dropping.
     let _active_client = client.activate_async((), process_handler).unwrap();
 
     std::thread::park();
     loop {
-        worker.run_workers();
+        workers.run_workers();
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
@@ -68,10 +66,20 @@ impl Processor {
         world: &livi::World,
         plugin: livi::Plugin,
         client: &jack::Client,
-    ) -> (Processor, livi::WorkerManager) {
+    ) -> (Processor, Arc<livi::WorkerManager>) {
+        let buffer_size = client.buffer_size() as usize;
+        let worker_manager = Arc::new(livi::WorkerManager::default());
+        let features = world.build_features(livi::FeaturesBuilder {
+            min_block_length: buffer_size,
+            max_block_length: buffer_size,
+            worker_manager: worker_manager.clone(),
+        });
         #[allow(clippy::cast_precision_loss)]
-        let mut plugin_instance =
-            unsafe { plugin.instantiate(client.sample_rate() as f64).unwrap() };
+        let plugin_instance = unsafe {
+            plugin
+                .instantiate(features.clone(), client.sample_rate() as f64)
+                .unwrap()
+        };
 
         let audio_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
             .ports_with_type(livi::PortType::AudioInput)
@@ -97,12 +105,12 @@ impl Processor {
         let event_inputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceInput)
             .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
-            .map(|p| (p, LV2AtomSequence::new(world, EVENT_BUFFER_SIZE)))
+            .map(|p| (p, LV2AtomSequence::new(&features, EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let event_outputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceOutput)
             .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
-            .map(|p| (p, LV2AtomSequence::new(world, EVENT_BUFFER_SIZE)))
+            .map(|p| (p, LV2AtomSequence::new(&features, EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let cv_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
             .ports_with_type(livi::PortType::CVInput)
@@ -122,14 +130,10 @@ impl Processor {
                     .unwrap()
             })
             .collect();
-        let mut worker_manager = livi::WorkerManager::default();
-        if let Some(worker) = plugin_instance.take_worker() {
-            worker_manager.add_worker(worker);
-        }
         (
             Processor {
                 plugin: plugin_instance,
-                midi_urid: world.midi_urid(),
+                midi_urid: features.midi_urid(),
                 audio_inputs,
                 audio_outputs,
                 control_inputs,
