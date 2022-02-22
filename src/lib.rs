@@ -9,6 +9,7 @@
 //! world
 //!     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
 //!     .unwrap();
+//! let mut worker_manager = livi::WorkerManager::default();
 //! let plugin = world
 //!     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
 //!     .expect("Plugin not found.");
@@ -17,6 +18,9 @@
 //!         .instantiate(SAMPLE_RATE)
 //!         .expect("Could not instantiate plugin.")
 //! };
+//! if let Some(worker) = instance.take_worker() {
+//!     worker_manager.add_worker(worker);
+//! }
 //! let input = {
 //!     let mut s = livi::event::LV2AtomSequence::new(&world, 1024);
 //!     let play_note_data = [0x90, 0x40, 0x7f];
@@ -34,6 +38,8 @@
 //!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
 //!     .with_control_inputs(params.iter());
 //! unsafe { instance.run(ports).unwrap() };
+//! // When running in realtime, `do_worker` should be called in a separate thread.
+//! worker_manager.run_workers();
 //! ```
 use crate::error::InitializeBlockLengthError;
 use crate::features::Features;
@@ -252,6 +258,7 @@ struct Resources {
     audio_port_uri: lilv::node::Node,
     atom_port_uri: lilv::node::Node,
     cv_port_uri: lilv::node::Node,
+    worker_schedule_feature_uri: lilv::node::Node,
     features: Mutex<Features>,
 }
 
@@ -264,6 +271,7 @@ impl Resources {
             audio_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#AudioPort"),
             atom_port_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#AtomPort"),
             cv_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#CVPort"),
+            worker_schedule_feature_uri: world.new_uri("http://lv2plug.in/ns/ext/worker#schedule"),
             features: Mutex::new(Features::new()),
         }
     }

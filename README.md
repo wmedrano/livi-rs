@@ -35,6 +35,7 @@ const SAMPLE_RATE: f64 = 44100.0;
 world
     .initialize_block_length(MIN_BLOCK_SIZE, MAX_BLOCK_SIZE)
     .unwrap();
+let mut worker_manager = livi::WorkerManager::default();
 let plugin = world
     // This is the URI for mda EPiano. You can use the `lv2ls` command line
     // utility to see all available LV2 plugins.
@@ -45,6 +46,9 @@ let mut instance = unsafe {
         .instantiate(SAMPLE_RATE)
         .expect("Could not instantiate plugin.")
 };
+if let Some(worker) = instance.take_worker() {
+    worker_manager.add_worker(worker);
+}
 
 // Where midi events will be read from.
 let input = {
@@ -73,6 +77,10 @@ let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()))
     .with_control_inputs(params.iter());
 unsafe { instance.run(ports).unwrap() };
+
+// Plugins may push asynchronous works to the worker. When operating in
+// Realtime, `run_workers` should be run in a separate thread.
+worker_manager.run_workers();
 ```
 
 ## Building, Testing, and Running
