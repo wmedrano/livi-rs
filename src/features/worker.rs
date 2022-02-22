@@ -146,8 +146,13 @@ impl Worker {
 
 // Not real-time safe.
 pub(crate) unsafe fn maybe_get_worker_interface(
+    plugin: &lilv::plugin::Plugin,
+    resources: &crate::Resources,
     instance: &mut lilv::instance::ActiveInstance,
 ) -> Option<lv2_sys::LV2_Worker_Interface> {
+    if !plugin.has_feature(&resources.worker_schedule_feature_uri) {
+        return None;
+    }
     // TODO: Remove below after
     // https://github.com/poidl/lv2_raw/issues/4 is fixed.
     let descriptor = instance.instance().descriptor().unwrap();

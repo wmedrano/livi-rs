@@ -100,7 +100,8 @@ impl Plugin {
 
         let mut inner = instance.activate();
 
-        let worker_interface = worker::maybe_get_worker_interface(&mut inner);
+        let worker_interface =
+            worker::maybe_get_worker_interface(&self.inner, &self.resources, &mut inner);
 
         #[allow(clippy::mutex_atomic)]
         let is_alive = Arc::new(Mutex::new(true));

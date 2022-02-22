@@ -38,12 +38,16 @@ fn main() {
 
     livi.initialize_block_length(client.buffer_size() as usize, client.buffer_size() as usize)
         .unwrap();
-    let process_handler = Processor::new(&livi, plugin, &client);
+    let (process_handler, mut worker) = Processor::new(&livi, plugin, &client);
 
-    let active_client = client.activate_async((), process_handler).unwrap();
+    // Keep reference to client to prevent it from dropping.
+    let _active_client = client.activate_async((), process_handler).unwrap();
 
     std::thread::park();
-    drop(active_client);
+    loop {
+        worker.run_workers();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 struct Processor {
@@ -60,9 +64,14 @@ struct Processor {
 }
 
 impl Processor {
-    fn new(world: &livi::World, plugin: livi::Plugin, client: &jack::Client) -> Processor {
+    fn new(
+        world: &livi::World,
+        plugin: livi::Plugin,
+        client: &jack::Client,
+    ) -> (Processor, livi::WorkerManager) {
         #[allow(clippy::cast_precision_loss)]
-        let plugin_instance = unsafe { plugin.instantiate(client.sample_rate() as f64).unwrap() };
+        let mut plugin_instance =
+            unsafe { plugin.instantiate(client.sample_rate() as f64).unwrap() };
 
         let audio_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
             .ports_with_type(livi::PortType::AudioInput)
@@ -113,18 +122,25 @@ impl Processor {
                     .unwrap()
             })
             .collect();
-        Processor {
-            plugin: plugin_instance,
-            midi_urid: world.midi_urid(),
-            audio_inputs,
-            audio_outputs,
-            control_inputs,
-            control_outputs,
-            event_inputs,
-            event_outputs,
-            cv_inputs,
-            cv_outputs,
+        let mut worker_manager = livi::WorkerManager::default();
+        if let Some(worker) = plugin_instance.take_worker() {
+            worker_manager.add_worker(worker);
         }
+        (
+            Processor {
+                plugin: plugin_instance,
+                midi_urid: world.midi_urid(),
+                audio_inputs,
+                audio_outputs,
+                control_inputs,
+                control_outputs,
+                event_inputs,
+                event_outputs,
+                cv_inputs,
+                cv_outputs,
+            },
+            worker_manager,
+        )
     }
 }
 
