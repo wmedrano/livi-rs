@@ -1,4 +1,3 @@
-use core::ffi::c_void;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -12,6 +11,8 @@ use crate::{
     CommonUris, Port, PortConnections, PortCounts, PortIndex, PortType,
 };
 use lv2_raw::LV2Feature;
+use lv2_sys::LV2_Worker_Schedule;
+use ringbuf::Producer;
 
 /// A plugin that can be used to instantiate plugin instances.
 #[derive(Clone)]
@@ -72,24 +73,20 @@ impl Plugin {
 
         let (instance_to_worker_sender, instance_to_worker_receiver) = worker::instantiate_queue();
         let (worker_to_instance_sender, worker_to_instance_receiver) = worker::instantiate_queue();
-        let instance_to_worker_sender = Box::new(instance_to_worker_sender);
-        let instance_to_worker_sender = Box::into_raw(instance_to_worker_sender);
-        let worker_schedule = Box::new(lv2_sys::LV2_Worker_Schedule {
-            handle: instance_to_worker_sender as *mut c_void,
+        let mut instance_to_worker_sender = Box::new(instance_to_worker_sender);
+        let instance_to_worker_sender_ptr: *mut Producer<u8> = instance_to_worker_sender.as_mut();
+        let mut worker_schedule = Box::new(lv2_sys::LV2_Worker_Schedule {
+            handle: instance_to_worker_sender_ptr.cast(),
             schedule_work: Some(worker::schedule_work),
         });
-        let instance_to_worker_sender = Box::from_raw(instance_to_worker_sender);
 
-        let worker_schedule = Box::into_raw(worker_schedule);
+        let worker_schedule_ptr: *mut LV2_Worker_Schedule = worker_schedule.as_mut();
         let worker_feature = LV2Feature {
             uri: lv2_sys::LV2_WORKER__schedule.as_ptr() as *mut i8,
-            data: worker_schedule as *mut c_void,
+            data: worker_schedule_ptr.cast(),
         };
-        let worker_schedule = Box::from_raw(worker_schedule);
 
-        let iter_features = features
-            .iter_features()
-            .chain(std::iter::once(&worker_feature));
+        let iter_features = features.iter_features(&worker_feature);
 
         let instance = self
             .inner

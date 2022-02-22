@@ -79,12 +79,15 @@ impl Features {
         ])
     }
 
-    pub fn iter_features(&self) -> impl Iterator<Item = &LV2Feature> {
-        let features = std::iter::once(self.urid_map.as_urid_map_feature())
+    pub fn iter_features<'a>(
+        &'a self,
+        worker_feature: &'a LV2Feature,
+    ) -> impl Iterator<Item = &'a LV2Feature> {
+        std::iter::once(self.urid_map.as_urid_map_feature())
             .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
             .chain(std::iter::once(self.options.as_feature()))
-            .chain(std::iter::once(&self.bounded_block_length));
-        features
+            .chain(std::iter::once(&self.bounded_block_length))
+            .chain(std::iter::once(worker_feature))
     }
 
     pub fn min_block_length(&self) -> usize {
