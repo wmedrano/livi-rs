@@ -44,14 +44,6 @@ pub enum RunError {
     /// supported size is set when initializing the `livi::World` object.
     SampleCountTooLarge { max_supported: usize, actual: usize },
 
-    /// The number of control inputs was different than what the plugin
-    /// required.
-    ControlInputsSizeMismatch { expected: usize, actual: usize },
-
-    /// The number of control outputs was different than what the plugin
-    /// required.
-    ControlOutputsSizeMismatch { expected: usize, actual: usize },
-
     /// The number of audio inputs was different than what the plugin required.
     AudioInputsSizeMismatch { expected: usize, actual: usize },
 
