@@ -41,10 +41,10 @@
 //!
 //! // Set up the port configuration and run the plugin!
 //! // The results will be stored in `outputs`.
-//! let ports = livi::EmptyPortConnections::new(features.max_block_length())
+//! let ports = livi::EmptyPortConnections::new()
 //! .with_atom_sequence_inputs(std::iter::once(&input))
 //! .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()));
-//! unsafe { instance.run(ports).unwrap() };
+//! unsafe { instance.run(features.max_block_length(), ports).unwrap() };
 //!
 //! // Plugins may push asynchronous works to the worker. When operating in
 //! // Realtime, `run_workers` should be run in a separate thread.
