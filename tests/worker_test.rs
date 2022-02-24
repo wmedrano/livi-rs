@@ -87,12 +87,12 @@ fn run_instance_with_input_sequence(
     let mut output_events = LV2AtomSequence::new(features, 1024);
     let mut outputs = [vec![0.0; MAX_BLOCK_SIZE]];
 
-    let ports = EmptyPortConnections::new(MAX_BLOCK_SIZE)
+    let ports = EmptyPortConnections::new()
         .with_atom_sequence_inputs(std::iter::once(&input))
         .with_atom_sequence_outputs(std::iter::once(&mut output_events))
         .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()));
 
-    unsafe { instance.run(ports).unwrap() };
+    unsafe { instance.run(MAX_BLOCK_SIZE, ports).unwrap() };
 
     outputs
 }

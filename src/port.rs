@@ -1,4 +1,5 @@
 use crate::event::LV2AtomSequence;
+use vecmap::VecMap;
 
 /// The type of IO for the port. Either input or output.
 #[derive(Copy, Clone, Debug)]
@@ -60,7 +61,7 @@ pub enum PortType {
 }
 
 /// The index of the port within a plugin.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PortIndex(pub usize);
 
 /// A port represents a connection (either input or output) to a plugin.
@@ -75,6 +76,9 @@ pub struct Port {
     /// The default value for the port if it is a `ControlInputs`.
     pub default_value: f32,
 
+    pub min_value: Option<f32>,
+    pub max_value: Option<f32>,
+
     /// The index of this port within the plugin.
     pub index: PortIndex,
 }
@@ -82,8 +86,6 @@ pub struct Port {
 /// A `PortConnections` object with no connections.
 pub type EmptyPortConnections = PortConnections<
     'static,
-    std::iter::Empty<&'static f32>,
-    std::iter::Empty<&'static mut f32>,
     std::iter::Empty<&'static [f32]>,
     std::iter::Empty<&'static mut [f32]>,
     std::iter::Empty<&'static LV2AtomSequence>,
@@ -94,11 +96,8 @@ pub type EmptyPortConnections = PortConnections<
 
 impl EmptyPortConnections {
     /// Create a new `PortConnections` object without any connections.
-    pub fn new(sample_count: usize) -> EmptyPortConnections {
+    pub fn new() -> EmptyPortConnections {
         EmptyPortConnections {
-            sample_count,
-            control_inputs: std::iter::empty(),
-            control_outputs: std::iter::empty(),
             audio_inputs: std::iter::empty(),
             audio_outputs: std::iter::empty(),
             atom_sequence_inputs: std::iter::empty(),
@@ -109,11 +108,15 @@ impl EmptyPortConnections {
     }
 }
 
+impl Default for EmptyPortConnections {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// All the inputs and outputs for an instance.
 pub struct PortConnections<
     'a,
-    ControlInputs,
-    ControlOutputs,
     AudioInputs,
     AudioOutputs,
     AtomSequenceInputs,
@@ -121,8 +124,6 @@ pub struct PortConnections<
     CVInputs,
     CVOutputs,
 > where
-    ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
-    ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
     AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
@@ -130,15 +131,6 @@ pub struct PortConnections<
     CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
 {
-    /// The number of audio samples that will be processed.
-    pub sample_count: usize,
-
-    /// The control inputs.
-    pub control_inputs: ControlInputs,
-
-    /// The control outputs.
-    pub control_outputs: ControlOutputs,
-
     /// The audio inputs.
     pub audio_inputs: AudioInputs,
 
@@ -160,8 +152,6 @@ pub struct PortConnections<
 
 impl<
         'a,
-        ControlInputs,
-        ControlOutputs,
         AudioInputs,
         AudioOutputs,
         AtomSequenceInputs,
@@ -171,8 +161,6 @@ impl<
     >
     PortConnections<
         'a,
-        ControlInputs,
-        ControlOutputs,
         AudioInputs,
         AudioOutputs,
         AtomSequenceInputs,
@@ -181,8 +169,6 @@ impl<
         CVOutputs,
     >
 where
-    ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
-    ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
     AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
@@ -190,76 +176,12 @@ where
     CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
 {
-    /// Create an instance of `PortConnections` with the given control inputs.
-    pub fn with_control_inputs<I>(
-        self,
-        control_inputs: I,
-    ) -> PortConnections<
-        'a,
-        I,
-        ControlOutputs,
-        AudioInputs,
-        AudioOutputs,
-        AtomSequenceInputs,
-        AtomSequenceOutputs,
-        CVInputs,
-        CVOutputs,
-    >
-    where
-        I: ExactSizeIterator + Iterator<Item = &'a f32>,
-    {
-        PortConnections {
-            sample_count: self.sample_count,
-            control_inputs,
-            control_outputs: self.control_outputs,
-            audio_inputs: self.audio_inputs,
-            audio_outputs: self.audio_outputs,
-            atom_sequence_inputs: self.atom_sequence_inputs,
-            atom_sequence_outputs: self.atom_sequence_outputs,
-            cv_inputs: self.cv_inputs,
-            cv_outputs: self.cv_outputs,
-        }
-    }
-
-    /// Create an instance `PortConnections` with the given control outputs.
-    pub fn with_control_outputs<I>(
-        self,
-        control_outputs: I,
-    ) -> PortConnections<
-        'a,
-        ControlInputs,
-        I,
-        AudioInputs,
-        AudioOutputs,
-        AtomSequenceInputs,
-        AtomSequenceOutputs,
-        CVInputs,
-        CVOutputs,
-    >
-    where
-        I: ExactSizeIterator + Iterator<Item = &'a mut f32>,
-    {
-        PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs,
-            audio_inputs: self.audio_inputs,
-            audio_outputs: self.audio_outputs,
-            atom_sequence_inputs: self.atom_sequence_inputs,
-            atom_sequence_outputs: self.atom_sequence_outputs,
-            cv_inputs: self.cv_inputs,
-            cv_outputs: self.cv_outputs,
-        }
-    }
-
     /// Create an instance of `PortConnections` with the given audio inputs.
     pub fn with_audio_inputs<I>(
         self,
         audio_inputs: I,
     ) -> PortConnections<
         'a,
-        ControlInputs,
-        ControlOutputs,
         I,
         AudioOutputs,
         AtomSequenceInputs,
@@ -271,9 +193,6 @@ where
         I: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     {
         PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs: self.control_outputs,
             audio_inputs,
             audio_outputs: self.audio_outputs,
             atom_sequence_inputs: self.atom_sequence_inputs,
@@ -289,8 +208,6 @@ where
         audio_outputs: I,
     ) -> PortConnections<
         'a,
-        ControlInputs,
-        ControlOutputs,
         AudioInputs,
         I,
         AtomSequenceInputs,
@@ -302,9 +219,6 @@ where
         I: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
         PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs: self.control_outputs,
             audio_inputs: self.audio_inputs,
             audio_outputs,
             atom_sequence_inputs: self.atom_sequence_inputs,
@@ -318,24 +232,11 @@ where
     pub fn with_atom_sequence_inputs<I>(
         self,
         atom_sequence_inputs: I,
-    ) -> PortConnections<
-        'a,
-        ControlInputs,
-        ControlOutputs,
-        AudioInputs,
-        AudioOutputs,
-        I,
-        AtomSequenceOutputs,
-        CVInputs,
-        CVOutputs,
-    >
+    ) -> PortConnections<'a, AudioInputs, AudioOutputs, I, AtomSequenceOutputs, CVInputs, CVOutputs>
     where
         I: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
     {
         PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs: self.control_outputs,
             audio_inputs: self.audio_inputs,
             audio_outputs: self.audio_outputs,
             atom_sequence_inputs,
@@ -349,24 +250,11 @@ where
     pub fn with_atom_sequence_outputs<I>(
         self,
         atom_sequence_outputs: I,
-    ) -> PortConnections<
-        'a,
-        ControlInputs,
-        ControlOutputs,
-        AudioInputs,
-        AudioOutputs,
-        AtomSequenceInputs,
-        I,
-        CVInputs,
-        CVOutputs,
-    >
+    ) -> PortConnections<'a, AudioInputs, AudioOutputs, AtomSequenceInputs, I, CVInputs, CVOutputs>
     where
         I: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
     {
         PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs: self.control_outputs,
             audio_inputs: self.audio_inputs,
             audio_outputs: self.audio_outputs,
             atom_sequence_inputs: self.atom_sequence_inputs,
@@ -382,8 +270,6 @@ where
         cv_inputs: I,
     ) -> PortConnections<
         'a,
-        ControlInputs,
-        ControlOutputs,
         AudioInputs,
         AudioOutputs,
         AtomSequenceInputs,
@@ -395,9 +281,6 @@ where
         I: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     {
         PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs: self.control_outputs,
             audio_inputs: self.audio_inputs,
             audio_outputs: self.audio_outputs,
             atom_sequence_inputs: self.atom_sequence_inputs,
@@ -413,8 +296,6 @@ where
         cv_outputs: I,
     ) -> PortConnections<
         'a,
-        ControlInputs,
-        ControlOutputs,
         AudioInputs,
         AudioOutputs,
         AtomSequenceInputs,
@@ -426,9 +307,6 @@ where
         I: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
         PortConnections {
-            sample_count: self.sample_count,
-            control_inputs: self.control_inputs,
-            control_outputs: self.control_outputs,
             audio_inputs: self.audio_inputs,
             audio_outputs: self.audio_outputs,
             atom_sequence_inputs: self.atom_sequence_inputs,
@@ -450,4 +328,75 @@ pub struct PortCounts {
     pub atom_sequence_outputs: usize,
     pub cv_inputs: usize,
     pub cv_outputs: usize,
+}
+
+struct ValueWithBounds {
+    value: f32,
+    minimum: f32,
+    maximum: f32,
+}
+
+pub(crate) struct Controls {
+    controls: VecMap<PortIndex, ValueWithBounds>,
+}
+
+impl Controls {
+    /// Construct a new `Controls` instance from the given ports.
+    pub(crate) fn new<I>(ports: I) -> Controls
+    where
+        I: Iterator<Item = Port>,
+    {
+        let mut controls = VecMap::new();
+        for port in ports {
+            let v = ValueWithBounds {
+                value: port.default_value,
+                minimum: port.min_value.unwrap_or(std::f32::NEG_INFINITY),
+                maximum: port.max_value.unwrap_or(std::f32::INFINITY),
+            };
+            controls.insert(port.index, v);
+        }
+        Controls { controls }
+    }
+
+    /// Iterate over the value of all controls.
+    pub fn iter(&self) -> impl '_ + Iterator<Item = (PortIndex, f32)> {
+        self.controls.iter().map(|(i, v)| (*i, v.value))
+    }
+
+    /// Return the number of controls.
+    pub fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    /// Get the value of the control at the given index or `None` if it does not
+    /// exist.
+    pub fn get(&self, port: PortIndex) -> Option<f32> {
+        self.controls.get(&port).map(|v| v.value)
+    }
+
+    /// Set the value of the control at the given index. The value will be
+    /// clamped to the minimum and maximum bounds and returned.
+    pub fn set(&mut self, port: PortIndex, value: f32) -> Option<f32> {
+        let old_v = self.controls.get(&port)?;
+        let normalized_value = match value {
+            v if v > old_v.maximum => old_v.maximum,
+            v if v < old_v.minimum => old_v.minimum,
+            v => v,
+        };
+        let new_v = ValueWithBounds {
+            value: normalized_value,
+            minimum: old_v.minimum,
+            maximum: old_v.maximum,
+        };
+        self.controls.insert(port, new_v);
+        Some(normalized_value)
+    }
+
+    /// Get a pointer to the value of the control at the given index.
+    pub fn value_ptr(&self, port: PortIndex) -> Option<*const f32> {
+        self.controls
+            .get(&port)
+            .map(|v| &v.value)
+            .map(|v| v as *const f32)
+    }
 }

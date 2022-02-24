@@ -9,9 +9,16 @@ pub mod options;
 pub mod urid_map;
 pub mod worker;
 
+/// A builder for `Features` objects.
 pub struct FeaturesBuilder {
+    /// The minimum block size. If plugins try to process less samples than this
+    /// on a single `run` call, an error will be returned.
     pub min_block_length: usize,
+    /// The maximum block size. If plugins try to process more samples than this
+    /// on a single `run` call, an error will be returned.
     pub max_block_length: usize,
+    /// The worker manager. Plugins will execute asynchronous work to be done by
+    /// this worker manager.
     pub worker_manager: Arc<WorkerManager>,
 }
 
@@ -26,7 +33,8 @@ impl Default for FeaturesBuilder {
 }
 
 impl FeaturesBuilder {
-    pub(crate) fn build(self, _world: &crate::World) -> Arc<Features> {
+    /// Build a new `Features` object.
+    pub fn build(self, _world: &crate::World) -> Arc<Features> {
         let mut features = Features {
             urid_map: urid_map::UridMap::new(),
             options: options::Options::new(),
@@ -58,6 +66,7 @@ impl FeaturesBuilder {
     }
 }
 
+/// `Features` are used to provide functionality to plugins.
 pub struct Features {
     urid_map: Pin<Box<urid_map::UridMap>>,
     options: options::Options,
@@ -79,6 +88,7 @@ impl Features {
         ])
     }
 
+    /// Iterate over all the LV2 features.
     pub fn iter_features<'a>(
         &'a self,
         worker_feature: &'a LV2Feature,
@@ -90,18 +100,22 @@ impl Features {
             .chain(std::iter::once(worker_feature))
     }
 
+    /// The minimum allowed block length.
     pub fn min_block_length(&self) -> usize {
         self.min_block_length
     }
 
+    /// The maximum allowed block length.
     pub fn max_block_length(&self) -> usize {
         self.max_block_length
     }
 
+    /// The urid for the given uri.
     pub fn urid(&self, uri: &CStr) -> u32 {
         self.urid_map.map(uri)
     }
 
+    /// The urid for midi.
     pub fn midi_urid(&self) -> lv2_raw::LV2Urid {
         self.urid(
             std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/midi#MidiEvent\0")
@@ -109,11 +123,14 @@ impl Features {
         )
     }
 
+    /// The uri for the given urid.
     pub fn uri(&self, urid: lv2_raw::LV2Urid) -> Option<&str> {
         self.urid_map.unmap(urid)
     }
 
-    pub(crate) fn worker_manager(&self) -> &WorkerManager {
+    /// The worker manager. This should be run periodically to perform any
+    /// asynchronous work that plugins have scheduled.
+    pub fn worker_manager(&self) -> &Arc<WorkerManager> {
         &self.worker_manager
     }
 }

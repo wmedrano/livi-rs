@@ -53,8 +53,6 @@ struct Processor {
     midi_urid: lv2_raw::LV2Urid,
     audio_inputs: Vec<jack::Port<jack::AudioIn>>,
     audio_outputs: Vec<jack::Port<jack::AudioOut>>,
-    control_inputs: Vec<f32>,
-    control_outputs: Vec<f32>,
     event_inputs: Vec<(jack::Port<jack::MidiIn>, LV2AtomSequence)>,
     event_outputs: Vec<(jack::Port<jack::MidiOut>, LV2AtomSequence)>,
     cv_inputs: Vec<jack::Port<jack::AudioIn>>,
@@ -91,16 +89,6 @@ impl Processor {
             .inspect(|p| info!("Initializing audio output {}.", p.name))
             .map(|p| client.register_port(&p.name, jack::AudioOut).unwrap())
             .collect();
-        let control_inputs: Vec<f32> = plugin
-            .ports_with_type(livi::PortType::ControlInput)
-            .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
-            .map(|p| p.default_value)
-            .collect();
-        let control_outputs: Vec<f32> = plugin
-            .ports_with_type(livi::PortType::ControlOutput)
-            .inspect(|p| info!("Using {:?}{} = {}", p.port_type, p.name, p.default_value))
-            .map(|p| p.default_value)
-            .collect();
         const EVENT_BUFFER_SIZE: usize = 262_144; // ~262KiB
         let event_inputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceInput)
@@ -136,8 +124,6 @@ impl Processor {
                 midi_urid: features.midi_urid(),
                 audio_inputs,
                 audio_outputs,
-                control_inputs,
-                control_outputs,
                 event_inputs,
                 event_outputs,
                 cv_inputs,
@@ -155,9 +141,6 @@ impl jack::ProcessHandler for Processor {
         }
 
         let ports = livi::PortConnections {
-            sample_count: ps.n_frames() as usize,
-            control_inputs: self.control_inputs.iter(),
-            control_outputs: self.control_outputs.iter_mut(),
             audio_inputs: self.audio_inputs.iter().map(|p| p.as_slice(ps)),
             audio_outputs: self.audio_outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
             atom_sequence_inputs: self.event_inputs.iter().map(|(_, e)| e),
@@ -165,7 +148,7 @@ impl jack::ProcessHandler for Processor {
             cv_inputs: self.cv_inputs.iter().map(|p| p.as_slice(ps)),
             cv_outputs: self.cv_outputs.iter_mut().map(|p| p.as_mut_slice(ps)),
         };
-        match unsafe { self.plugin.run(ports) } {
+        match unsafe { self.plugin.run(ps.n_frames() as usize, ports) } {
             Ok(()) => (),
             Err(e) => {
                 error!("Error: {:?}", e);

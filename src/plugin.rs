@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use crate::features::Features;
+use crate::port::Controls;
 use crate::{
     error::{InstantiateError, RunError},
     event::LV2AtomSequence,
@@ -88,13 +89,35 @@ impl Plugin {
 
         let iter_features = features.iter_features(&worker_feature);
 
-        let instance = self
+        let mut instance = self
             .inner
             .instantiate(sample_rate, iter_features)
             .ok_or(InstantiateError::UnknownError)?;
 
-        let mut inner = instance.activate();
+        let control_inputs = Controls::new(self.ports_with_type(PortType::ControlInput));
+        let control_outputs = Controls::new(self.ports_with_type(PortType::ControlOutput));
+        let mut audio_inputs = Vec::new();
+        let mut audio_outputs = Vec::new();
+        let mut atom_sequence_inputs = Vec::new();
+        let mut atom_sequence_outputs = Vec::new();
+        let mut cv_inputs = Vec::new();
+        let mut cv_outputs = Vec::new();
+        for port in self.ports() {
+            match port.port_type {
+                PortType::ControlInput => instance
+                    .connect_port(port.index.0, control_inputs.value_ptr(port.index).unwrap()),
+                PortType::ControlOutput => instance
+                    .connect_port(port.index.0, control_outputs.value_ptr(port.index).unwrap()),
+                PortType::AudioInput => audio_inputs.push(port.index),
+                PortType::AudioOutput => audio_outputs.push(port.index),
+                PortType::AtomSequenceInput => atom_sequence_inputs.push(port.index),
+                PortType::AtomSequenceOutput => atom_sequence_outputs.push(port.index),
+                PortType::CVInput => cv_inputs.push(port.index),
+                PortType::CVOutput => cv_outputs.push(port.index),
+            }
+        }
 
+        let mut inner = instance.activate();
         #[allow(clippy::mutex_atomic)]
         let is_alive = Arc::new(Mutex::new(true));
 
@@ -109,27 +132,6 @@ impl Plugin {
                 worker_to_instance_sender,
             );
             features.worker_manager().add_worker(worker);
-        }
-
-        let mut control_inputs = Vec::new();
-        let mut control_outputs = Vec::new();
-        let mut audio_inputs = Vec::new();
-        let mut audio_outputs = Vec::new();
-        let mut atom_sequence_inputs = Vec::new();
-        let mut atom_sequence_outputs = Vec::new();
-        let mut cv_inputs = Vec::new();
-        let mut cv_outputs = Vec::new();
-        for port in self.ports() {
-            match port.port_type {
-                PortType::ControlInput => control_inputs.push(port.index),
-                PortType::ControlOutput => control_outputs.push(port.index),
-                PortType::AudioInput => audio_inputs.push(port.index),
-                PortType::AudioOutput => audio_outputs.push(port.index),
-                PortType::AtomSequenceInput => atom_sequence_inputs.push(port.index),
-                PortType::AtomSequenceOutput => atom_sequence_outputs.push(port.index),
-                PortType::CVInput => cv_inputs.push(port.index),
-                PortType::CVOutput => cv_outputs.push(port.index),
-            }
         }
 
         Ok(Instance {
@@ -196,8 +198,8 @@ pub struct Instance {
     inner: lilv::instance::ActiveInstance,
     min_block_size: usize,
     max_block_size: usize,
-    control_inputs: Vec<PortIndex>,
-    control_outputs: Vec<PortIndex>,
+    control_inputs: Controls,
+    control_outputs: Controls,
     audio_inputs: Vec<PortIndex>,
     audio_outputs: Vec<PortIndex>,
     atom_sequence_inputs: Vec<PortIndex>,
@@ -224,8 +226,6 @@ impl Instance {
     /// Returns an error if the plugin could not be run.
     pub unsafe fn run<
         'a,
-        ControlInputs,
-        ControlOutputs,
         AudioInputs,
         AudioOutputs,
         AtomSequenceInputs,
@@ -234,10 +234,9 @@ impl Instance {
         CVOutputs,
     >(
         &mut self,
+        samples: usize,
         ports: PortConnections<
             'a,
-            ControlInputs,
-            ControlOutputs,
             AudioInputs,
             AudioOutputs,
             AtomSequenceInputs,
@@ -247,8 +246,6 @@ impl Instance {
         >,
     ) -> Result<(), RunError>
     where
-        ControlInputs: ExactSizeIterator + Iterator<Item = &'a f32>,
-        ControlOutputs: ExactSizeIterator + Iterator<Item = &'a mut f32>,
         AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
         AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
         AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
@@ -256,36 +253,17 @@ impl Instance {
         CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
         CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
-        let sample_count = ports.sample_count;
-        if sample_count < self.min_block_size {
+        if samples < self.min_block_size {
             return Err(RunError::SampleCountTooSmall {
                 min_supported: self.min_block_size,
-                actual: sample_count,
+                actual: samples,
             });
         }
-        if sample_count > self.max_block_size {
+        if samples > self.max_block_size {
             return Err(RunError::SampleCountTooLarge {
                 max_supported: self.max_block_size,
-                actual: sample_count,
+                actual: samples,
             });
-        }
-        if ports.control_inputs.len() != self.control_inputs.len() {
-            return Err(RunError::ControlInputsSizeMismatch {
-                expected: self.control_inputs.len(),
-                actual: ports.control_inputs.len(),
-            });
-        }
-        for (data, index) in ports.control_inputs.zip(self.control_inputs.iter()) {
-            self.inner.instance_mut().connect_port(index.0, data);
-        }
-        if ports.control_outputs.len() != self.control_outputs.len() {
-            return Err(RunError::ControlOutputsSizeMismatch {
-                expected: self.control_outputs.len(),
-                actual: ports.control_outputs.len(),
-            });
-        }
-        for (data, index) in ports.control_outputs.zip(self.control_outputs.iter()) {
-            self.inner.instance_mut().connect_port_mut(index.0, data);
         }
         if ports.audio_inputs.len() != self.audio_inputs.len() {
             return Err(RunError::AudioInputsSizeMismatch {
@@ -294,9 +272,9 @@ impl Instance {
             });
         }
         for (data, index) in ports.audio_inputs.zip(self.audio_inputs.iter()) {
-            if data.len() < sample_count {
+            if data.len() < samples {
                 return Err(RunError::AudioInputSampleCountTooSmall {
-                    expected: sample_count,
+                    expected: samples,
                     actual: data.len(),
                 });
             }
@@ -311,9 +289,9 @@ impl Instance {
             });
         }
         for (data, index) in ports.audio_outputs.zip(self.audio_outputs.iter()) {
-            if data.len() < sample_count {
+            if data.len() < samples {
                 return Err(RunError::AudioOutputSampleCountTooSmall {
-                    expected: sample_count,
+                    expected: samples,
                     actual: data.len(),
                 });
             }
@@ -372,7 +350,7 @@ impl Instance {
                 .instance_mut()
                 .connect_port_mut(index.0, data.as_mut_ptr());
         }
-        self.inner.run(ports.sample_count);
+        self.inner.run(samples);
 
         if let Some(interface) = self.worker_interface.as_mut() {
             worker::handle_work_responses(
@@ -384,6 +362,29 @@ impl Instance {
         }
 
         Ok(())
+    }
+
+    /// Get the value of the control port at `index`. If `index` is not a valid
+    /// control port index, then `None` is returned.
+    pub fn control_input(&self, index: PortIndex) -> Option<f32> {
+        self.control_inputs.get(index)
+    }
+
+    /// Set the value of the control port at `index`. If `index` is not a valid
+    /// control port index, then `None` is returned. If the index is valid, then
+    /// the value is returned. Note: This may be different than the passed in
+    /// value in cases the input `value` is out of bounds of allowed values.
+    pub fn set_control_input(&mut self, index: PortIndex, value: f32) -> Option<f32> {
+        self.control_inputs.set(index, value)?;
+        let ptr = self.control_inputs.value_ptr(index)?;
+        unsafe { self.inner.instance_mut().connect_port(index.0, ptr) };
+        Some(unsafe { *ptr })
+    }
+
+    /// Get the value of the control port at `index`. If `index` is not a valid
+    /// control port index, then `None` is returned.
+    pub fn control_output(&self, index: PortIndex) -> Option<f32> {
+        self.control_outputs.get(index)
     }
 
     /// Get the number of ports for a specific type of port.
@@ -455,17 +456,7 @@ fn iter_ports_impl<'a>(
             (IOType::Input, DataType::CV) => PortType::CVInput,
             (IOType::Output, DataType::CV) => PortType::CVOutput,
         };
-        let default_value = p.range().default.map_or(0.0, |n| {
-            if n.is_float() {
-                n.as_float().unwrap_or(0.0)
-            } else if n.is_int() {
-                n.as_int().unwrap_or(0) as f32
-            } else if n.as_bool().unwrap_or(false) {
-                1.0
-            } else {
-                0.0
-            }
-        });
+        let range = p.range();
         Port {
             port_type,
             name: p
@@ -474,10 +465,28 @@ fn iter_ports_impl<'a>(
                 .as_str()
                 .unwrap_or("BAD_NAME")
                 .to_string(),
-            default_value,
+            default_value: node_to_value(&range.default),
+            min_value: range.minimum.map(|n| node_to_value(&Some(n))),
+            max_value: range.maximum.map(|n| node_to_value(&Some(n))),
             index: PortIndex(p.index()),
         }
     })
+}
+
+fn node_to_value(maybe_node: &Option<lilv::node::Node>) -> f32 {
+    let n = match maybe_node {
+        Some(n) => n,
+        None => return 0.0,
+    };
+    if n.is_float() {
+        n.as_float().map(|f| f as f32).unwrap_or(0.0)
+    } else if n.is_int() {
+        n.as_int().unwrap_or(0) as f32
+    } else if n.as_bool().unwrap_or(false) {
+        1f32
+    } else {
+        0f32
+    }
 }
 
 #[cfg(test)]
@@ -502,21 +511,16 @@ mod tests {
                 .expect("Could not instantiate plugin.")
         };
         let input = crate::event::LV2AtomSequence::new(&features, 1024);
-        let params: Vec<f32> = plugin
-            .ports_with_type(crate::PortType::ControlInput)
-            .map(|p| p.default_value)
-            .collect();
         let mut outputs_that_are_too_small = [vec![0.0; 1], vec![0.0; 1]];
-        let ports = crate::EmptyPortConnections::new(block_size)
+        let ports = crate::EmptyPortConnections::new()
             .with_atom_sequence_inputs(std::iter::once(&input))
             .with_audio_outputs(
                 outputs_that_are_too_small
                     .iter_mut()
                     .map(|output| output.as_mut_slice()),
-            )
-            .with_control_inputs(params.iter());
+            );
         assert_eq!(
-            unsafe { instance.run(ports) },
+            unsafe { instance.run(block_size, ports) },
             Err(crate::error::RunError::AudioOutputSampleCountTooSmall {
                 expected: block_size,
                 actual: 1
@@ -542,9 +546,9 @@ mod tests {
                 .instantiate(features, 44100.0)
                 .expect("Could not instantiate plugin.")
         };
-        let ports = crate::EmptyPortConnections::new(lower_than_supported_block_size);
+        let ports = crate::EmptyPortConnections::new();
         assert_eq!(
-            unsafe { instance.run(ports) },
+            unsafe { instance.run(lower_than_supported_block_size, ports) },
             Err(crate::error::RunError::SampleCountTooSmall {
                 min_supported: 512,
                 actual: 256
@@ -570,9 +574,9 @@ mod tests {
                 .instantiate(features, 44100.0)
                 .expect("Could not instantiate plugin.")
         };
-        let ports = crate::EmptyPortConnections::new(higher_than_supported_block_size);
+        let ports = crate::EmptyPortConnections::new();
         assert_eq!(
-            unsafe { instance.run(ports) },
+            unsafe { instance.run(higher_than_supported_block_size, ports) },
             Err(crate::error::RunError::SampleCountTooLarge {
                 max_supported: 1024,
                 actual: 2048,

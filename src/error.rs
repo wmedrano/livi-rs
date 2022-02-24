@@ -1,18 +1,3 @@
-/// An error that occurs when initializing the block length LV2 feature.
-#[derive(Copy, Clone, Debug)]
-pub enum InitializeBlockLengthError {
-    /// The minimum block length is too large.
-    MinBlockLengthTooLarge { max_supported: usize, actual: usize },
-    /// The maximum block length is too large.
-    MaxBlockLengthTooLarge { max_supported: usize, actual: usize },
-    /// The block length has already been initialized. It cannot be initialized
-    /// again since existing plugins may have already been instantiated.
-    BlockLengthAlreadyInitialized {
-        min_block_length: usize,
-        max_block_length: usize,
-    },
-}
-
 /// An error with plugin instantiation.
 #[derive(Copy, Clone, Debug)]
 pub enum InstantiateError {
@@ -43,14 +28,6 @@ pub enum RunError {
     /// The sample count is larger than the maximum that is allowed. The
     /// supported size is set when initializing the `livi::World` object.
     SampleCountTooLarge { max_supported: usize, actual: usize },
-
-    /// The number of control inputs was different than what the plugin
-    /// required.
-    ControlInputsSizeMismatch { expected: usize, actual: usize },
-
-    /// The number of control outputs was different than what the plugin
-    /// required.
-    ControlOutputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of audio inputs was different than what the plugin required.
     AudioInputsSizeMismatch { expected: usize, actual: usize },
