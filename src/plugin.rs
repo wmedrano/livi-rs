@@ -375,7 +375,7 @@ impl Instance {
     /// the value is returned. Note: This may be different than the passed in
     /// value in cases the input `value` is out of bounds of allowed values.
     pub fn set_control_input(&mut self, index: PortIndex, value: f32) -> Option<f32> {
-        self.control_inputs.set(index, value);
+        self.control_inputs.set(index, value)?;
         let ptr = self.control_inputs.value_ptr(index)?;
         unsafe { self.inner.instance_mut().connect_port(index.0, ptr) };
         Some(unsafe { *ptr })

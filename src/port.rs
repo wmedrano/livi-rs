@@ -330,41 +330,73 @@ pub struct PortCounts {
     pub cv_outputs: usize,
 }
 
-pub struct Controls {
-    controls: VecMap<PortIndex, f32>,
+struct ValueWithBounds {
+    value: f32,
+    minimum: f32,
+    maximum: f32,
+}
+
+pub(crate) struct Controls {
+    controls: VecMap<PortIndex, ValueWithBounds>,
 }
 
 impl Controls {
+    /// Construct a new `Controls` instance from the given ports.
     pub(crate) fn new<I>(ports: I) -> Controls
     where
         I: Iterator<Item = Port>,
     {
         let mut controls = VecMap::new();
         for port in ports {
-            controls.insert(port.index, port.default_value);
+            let v = ValueWithBounds {
+                value: port.default_value,
+                minimum: port.min_value.unwrap_or(std::f32::NEG_INFINITY),
+                maximum: port.max_value.unwrap_or(std::f32::INFINITY),
+            };
+            controls.insert(port.index, v);
         }
         Controls { controls }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(PortIndex, f32)> {
-        self.controls.iter()
+    /// Iterate over the value of all controls.
+    pub fn iter(&self) -> impl '_ + Iterator<Item = (PortIndex, f32)> {
+        self.controls.iter().map(|(i, v)| (*i, v.value))
     }
 
+    /// Return the number of controls.
     pub fn len(&self) -> usize {
         self.iter().count()
     }
 
+    /// Get the value of the control at the given index or `None` if it does not
+    /// exist.
     pub fn get(&self, port: PortIndex) -> Option<f32> {
-        self.controls.get(&port).copied()
+        self.controls.get(&port).map(|v| v.value)
     }
 
-    pub fn set(&mut self, port: PortIndex, value: f32) {
-        if self.get(port).is_some() {
-            self.controls.insert(port, value);
-        }
+    /// Set the value of the control at the given index. The value will be
+    /// clamped to the minimum and maximum bounds and returned.
+    pub fn set(&mut self, port: PortIndex, value: f32) -> Option<f32> {
+        let old_v = self.controls.get(&port)?;
+        let normalized_value = match value {
+            v if v > old_v.maximum => old_v.maximum,
+            v if v < old_v.minimum => old_v.minimum,
+            v => v,
+        };
+        let new_v = ValueWithBounds {
+            value: normalized_value,
+            minimum: old_v.minimum,
+            maximum: old_v.maximum,
+        };
+        self.controls.insert(port, new_v);
+        Some(normalized_value)
     }
 
-    pub(crate) fn value_ptr(&self, port: PortIndex) -> Option<*const f32> {
-        self.controls.get(&port).map(|v| v as *const f32)
+    /// Get a pointer to the value of the control at the given index.
+    pub fn value_ptr(&self, port: PortIndex) -> Option<*const f32> {
+        self.controls
+            .get(&port)
+            .map(|v| &v.value)
+            .map(|v| v as *const f32)
     }
 }

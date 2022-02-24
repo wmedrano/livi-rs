@@ -2,12 +2,7 @@
 fn test_readme_example() {
     let world = livi::World::new();
     const SAMPLE_RATE: f64 = 44100.0;
-    let worker_manager = std::sync::Arc::new(livi::WorkerManager::default());
-    let features = world.build_features(livi::FeaturesBuilder {
-        min_block_length: 1,
-        max_block_length: 4096,
-        worker_manager: worker_manager.clone(),
-    });
+    let features = world.build_features(livi::FeaturesBuilder::default());
     let plugin = world
         // This is the URI for mda EPiano. You can use the `lv2ls` command line
         // utility to see all available LV2 plugins.
@@ -43,5 +38,5 @@ fn test_readme_example() {
 
     // Plugins may push asynchronous works to the worker. When operating in
     // Realtime, `run_workers` should be run in a separate thread.
-    worker_manager.run_workers();
+    features.worker_manager().run_workers();
 }

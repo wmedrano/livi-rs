@@ -79,6 +79,7 @@ impl Features {
         ])
     }
 
+    /// Iterate over all the LV2 features.
     pub fn iter_features<'a>(
         &'a self,
         worker_feature: &'a LV2Feature,
@@ -90,18 +91,22 @@ impl Features {
             .chain(std::iter::once(worker_feature))
     }
 
+    /// The minimum allowed block length.
     pub fn min_block_length(&self) -> usize {
         self.min_block_length
     }
 
+    /// The maximum allowed block length.
     pub fn max_block_length(&self) -> usize {
         self.max_block_length
     }
 
+    /// The urid for the given uri.
     pub fn urid(&self, uri: &CStr) -> u32 {
         self.urid_map.map(uri)
     }
 
+    /// The urid for midi.
     pub fn midi_urid(&self) -> lv2_raw::LV2Urid {
         self.urid(
             std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/midi#MidiEvent\0")
@@ -109,11 +114,14 @@ impl Features {
         )
     }
 
+    /// The uri for the given urid.
     pub fn uri(&self, urid: lv2_raw::LV2Urid) -> Option<&str> {
         self.urid_map.unmap(urid)
     }
 
-    pub(crate) fn worker_manager(&self) -> &WorkerManager {
+    /// The worker manager. This should be run periodically to perform any
+    /// asynchronous work that plugins have scheduled.
+    pub fn worker_manager(&self) -> &Arc<WorkerManager> {
         &self.worker_manager
     }
 }

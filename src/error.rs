@@ -1,18 +1,3 @@
-/// An error that occurs when initializing the block length LV2 feature.
-#[derive(Copy, Clone, Debug)]
-pub enum InitializeBlockLengthError {
-    /// The minimum block length is too large.
-    MinBlockLengthTooLarge { max_supported: usize, actual: usize },
-    /// The maximum block length is too large.
-    MaxBlockLengthTooLarge { max_supported: usize, actual: usize },
-    /// The block length has already been initialized. It cannot be initialized
-    /// again since existing plugins may have already been instantiated.
-    BlockLengthAlreadyInitialized {
-        min_block_length: usize,
-        max_block_length: usize,
-    },
-}
-
 /// An error with plugin instantiation.
 #[derive(Copy, Clone, Debug)]
 pub enum InstantiateError {
