@@ -20,6 +20,7 @@ out of the box.
 - [`http://lv2plug.in/ns/ext/urid#unmap`](http://lv2plug.in/ns/ext/urid#unmap)
 - [`http://lv2plug.in/ns/ext/options#options`](http://lv2plug.in/ns/ext/options#options])
 - [`http://lv2plug.in/ns/ext/buf-size#boundedBlockLength`](http://lv2plug.in/ns/ext/buf-size#boundedBlockLength)
+- [`http://lv2plug.in/ns/ext/worker#schedule`](http://lv2plug.in/ns/ext/worker#schedule)
 
 ## Quickstart
 
