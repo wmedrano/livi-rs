@@ -9,9 +9,16 @@ pub mod options;
 pub mod urid_map;
 pub mod worker;
 
+/// A builder for `Features` objects.
 pub struct FeaturesBuilder {
+    /// The minimum block size. If plugins try to process less samples than this
+    /// on a single `run` call, an error will be returned.
     pub min_block_length: usize,
+    /// The maximum block size. If plugins try to process more samples than this
+    /// on a single `run` call, an error will be returned.
     pub max_block_length: usize,
+    /// The worker manager. Plugins will execute asynchronous work to be done by
+    /// this worker manager.
     pub worker_manager: Arc<WorkerManager>,
 }
 
@@ -26,7 +33,8 @@ impl Default for FeaturesBuilder {
 }
 
 impl FeaturesBuilder {
-    pub(crate) fn build(self, _world: &crate::World) -> Arc<Features> {
+    /// Build a new `Features` object.
+    pub fn build(self, _world: &crate::World) -> Arc<Features> {
         let mut features = Features {
             urid_map: urid_map::UridMap::new(),
             options: options::Options::new(),
@@ -58,6 +66,7 @@ impl FeaturesBuilder {
     }
 }
 
+/// `Features` are used to provide functionality to plugins.
 pub struct Features {
     urid_map: Pin<Box<urid_map::UridMap>>,
     options: options::Options,
