@@ -97,6 +97,8 @@ pub struct Worker {
     sender: WorkerMessageSender,     // Where we send the results of our work
 }
 
+unsafe impl Send for Worker {}
+
 impl Worker {
     pub(crate) fn new(
         plugin_is_alive: Arc<Mutex<bool>>,
