@@ -213,7 +213,12 @@ fn test_sampler() {
     let outputs = run_instance_with_input_sequence(&mut instance, &features, input);
     assert_silence(outputs);
 
-    worker_manager.run_workers();
+    // The worker is probably going to run in some other thread,
+    // so this proves that both Worker & WorkerManager are Send.
+    let thread = std::thread::spawn(move || {
+        worker_manager.run_workers();
+    });
+    thread.join().unwrap();
 
     let outputs = run_instance_with_single_midi_note_input(&mut instance, &features);
     assert_silence(outputs);
