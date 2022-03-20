@@ -70,7 +70,12 @@ unsafe { instance.run(features.max_block_length(), ports).unwrap() };
 
 // Plugins may push asynchronous works to the worker. When operating in
 // Realtime, `run_workers` should be run in a separate thread.
-worker_manager.run_workers();
+std::thread::spawn(move || {
+    worker_manager.run_workers();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+});
+
+std::thread::park();
 ```
 
 ## Building, Testing, and Running

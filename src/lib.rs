@@ -39,7 +39,12 @@
 //!
 //! // Plugins may push asynchronous works to the worker. When operating in
 //! // Realtime, `run_workers` should be run in a separate thread.
-//! worker_manager.run_workers();
+//! std::thread::spawn(move || loop {
+//!     worker_manager.run_workers();
+//!     // Add some sleep to avoid busy looping.
+//!     // Busy looping may lead to increased CPU usage.
+//!     std::thread::sleep(std::time::Duration::from_millis(100));
+//! });
 //! ```
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -396,7 +401,7 @@ mod tests {
         let plugin = world
             // Takes a midi and adds the fifth of every note.
             .plugin_by_uri("http://lv2plug.in/plugins/eg-fifths")
-            .expect("Plugin not found.");
+            .expect("Plugin http://lv2plug.in/plugins/eg-fifths not found.");
         assert_eq!(
             *plugin.port_counts(),
             PortCounts {

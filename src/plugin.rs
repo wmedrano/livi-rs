@@ -366,25 +366,27 @@ impl Instance {
 
     /// Get the value of the control port at `index`. If `index` is not a valid
     /// control port index, then `None` is returned.
+    pub fn control_output(&self, index: PortIndex) -> Option<f32> {
+        self.control_outputs.get(index)
+    }
+
+    /// Get the value of the control port at `index`. If `index` is not a valid
+    /// control port index, then `None` is returned.
     pub fn control_input(&self, index: PortIndex) -> Option<f32> {
         self.control_inputs.get(index)
     }
 
     /// Set the value of the control port at `index`. If `index` is not a valid
     /// control port index, then `None` is returned. If the index is valid, then
-    /// the value is returned. Note: This may be different than the passed in
-    /// value in cases the input `value` is out of bounds of allowed values.
+    /// the value is returned.
+    ///
+    /// Note: This may be different than the passed in value in cases the input
+    /// `value` is out of bounds of allowed values.
     pub fn set_control_input(&mut self, index: PortIndex, value: f32) -> Option<f32> {
         self.control_inputs.set(index, value)?;
         let ptr = self.control_inputs.value_ptr(index)?;
         unsafe { self.inner.instance_mut().connect_port(index.0, ptr) };
         Some(unsafe { *ptr })
-    }
-
-    /// Get the value of the control port at `index`. If `index` is not a valid
-    /// control port index, then `None` is returned.
-    pub fn control_output(&self, index: PortIndex) -> Option<f32> {
-        self.control_outputs.get(index)
     }
 
     /// Get the number of ports for a specific type of port.

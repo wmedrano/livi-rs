@@ -1,5 +1,4 @@
 use crate::event::LV2AtomSequence;
-use vecmap::VecMap;
 
 /// The type of IO for the port. Either input or output.
 #[derive(Copy, Clone, Debug)]
@@ -76,7 +75,10 @@ pub struct Port {
     /// The default value for the port if it is a `ControlInputs`.
     pub default_value: f32,
 
+    /// The minimum value allowed for the port.
     pub min_value: Option<f32>,
+
+    /// The maximum value allowed for the port.
     pub max_value: Option<f32>,
 
     /// The index of this port within the plugin.
@@ -330,14 +332,17 @@ pub struct PortCounts {
     pub cv_outputs: usize,
 }
 
-struct ValueWithBounds {
+struct DetailedPortValues {
+    port_index: PortIndex,
     value: f32,
     minimum: f32,
     maximum: f32,
 }
 
+/// Controls holds the values of control ports. These are also known as
+/// parameters.
 pub(crate) struct Controls {
-    controls: VecMap<PortIndex, ValueWithBounds>,
+    controls: Vec<DetailedPortValues>,
 }
 
 impl Controls {
@@ -346,57 +351,52 @@ impl Controls {
     where
         I: Iterator<Item = Port>,
     {
-        let mut controls = VecMap::new();
-        for port in ports {
-            let v = ValueWithBounds {
-                value: port.default_value,
-                minimum: port.min_value.unwrap_or(std::f32::NEG_INFINITY),
-                maximum: port.max_value.unwrap_or(std::f32::INFINITY),
-            };
-            controls.insert(port.index, v);
-        }
+        let mut controls: Vec<DetailedPortValues> = ports
+            .map(|p| DetailedPortValues {
+                port_index: p.index,
+                value: p.default_value,
+                minimum: p.min_value.unwrap_or(std::f32::NEG_INFINITY),
+                maximum: p.max_value.unwrap_or(std::f32::INFINITY),
+            })
+            .collect();
+        controls.sort_by(|a, b| a.port_index.cmp(&b.port_index));
+        controls.dedup_by_key(|p| p.port_index);
         Controls { controls }
-    }
-
-    /// Iterate over the value of all controls.
-    pub fn iter(&self) -> impl '_ + Iterator<Item = (PortIndex, f32)> {
-        self.controls.iter().map(|(i, v)| (*i, v.value))
-    }
-
-    /// Return the number of controls.
-    pub fn len(&self) -> usize {
-        self.iter().count()
     }
 
     /// Get the value of the control at the given index or `None` if it does not
     /// exist.
     pub fn get(&self, port: PortIndex) -> Option<f32> {
-        self.controls.get(&port).map(|v| v.value)
+        let idx = self.port_index_to_index_in_controls(port)?;
+        self.controls.get(idx).map(|p| p.value)
+    }
+
+    /// Return the number of controls.
+    pub fn len(&self) -> usize {
+        self.controls.len()
     }
 
     /// Set the value of the control at the given index. The value will be
     /// clamped to the minimum and maximum bounds and returned.
     pub fn set(&mut self, port: PortIndex, value: f32) -> Option<f32> {
-        let old_v = self.controls.get(&port)?;
-        let normalized_value = match value {
-            v if v > old_v.maximum => old_v.maximum,
-            v if v < old_v.minimum => old_v.minimum,
-            v => v,
-        };
-        let new_v = ValueWithBounds {
-            value: normalized_value,
-            minimum: old_v.minimum,
-            maximum: old_v.maximum,
-        };
-        self.controls.insert(port, new_v);
+        let idx = self.port_index_to_index_in_controls(port)?;
+        let mut p = self.controls.get_mut(idx)?;
+        let normalized_value = value.clamp(p.minimum, p.maximum);
+        p.value = normalized_value;
         Some(normalized_value)
     }
 
     /// Get a pointer to the value of the control at the given index.
     pub fn value_ptr(&self, port: PortIndex) -> Option<*const f32> {
+        let idx = self.port_index_to_index_in_controls(port)?;
+        let p = self.controls.get(idx)?;
+        Some(&p.value)
+    }
+
+    /// Get the index within the controls vector of the given port index.
+    fn port_index_to_index_in_controls(&self, port: PortIndex) -> Option<usize> {
         self.controls
-            .get(&port)
-            .map(|v| &v.value)
-            .map(|v| v as *const f32)
+            .binary_search_by_key(&port, |p| p.port_index)
+            .ok()
     }
 }
