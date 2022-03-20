@@ -364,22 +364,24 @@ impl Instance {
         Ok(())
     }
 
-    /// Get the control inputs. These are also known as parameters.
-    pub fn control_inputs(&self) -> &Controls {
-        &self.control_inputs
+    /// Get the value of the control port at `index`. If `index` is not a valid
+    /// control port index, then `None` is returned.
+    pub fn control_output(&self, index: PortIndex) -> Option<f32> {
+        self.control_outputs.get(index)
     }
 
-    /// Get the control inputs. These are also known as parameters.
-    pub fn control_outputs(&self) -> &Controls {
-        &self.control_outputs
+    /// Get the value of the control port at `index`. If `index` is not a valid
+    /// control port index, then `None` is returned.
+    pub fn control_input(&self, index: PortIndex) -> Option<f32> {
+        self.control_inputs.get(index)
     }
 
     /// Set the value of the control port at `index`. If `index` is not a valid
     /// control port index, then `None` is returned. If the index is valid, then
     /// the value is returned.
     ///
-    /// Note: This may be different than the passed in
-    /// value in cases the input `value` is out of bounds of allowed values.
+    /// Note: This may be different than the passed in value in cases the input
+    /// `value` is out of bounds of allowed values.
     pub fn set_control_input(&mut self, index: PortIndex, value: f32) -> Option<f32> {
         self.control_inputs.set(index, value)?;
         let ptr = self.control_inputs.value_ptr(index)?;

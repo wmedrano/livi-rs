@@ -341,7 +341,7 @@ struct DetailedPortValues {
 
 /// Controls holds the values of control ports. These are also known as
 /// parameters.
-pub struct Controls {
+pub(crate) struct Controls {
     controls: Vec<DetailedPortValues>,
 }
 
@@ -371,19 +371,9 @@ impl Controls {
         self.controls.get(idx).map(|p| p.value)
     }
 
-    /// Iterate over the value of all controls.
-    pub fn iter(&self) -> impl '_ + Iterator<Item = (PortIndex, f32)> {
-        self.controls.iter().map(|p| (p.port_index, p.value))
-    }
-
     /// Return the number of controls.
     pub fn len(&self) -> usize {
         self.controls.len()
-    }
-
-    /// Returns `true` if there are no controls.
-    pub fn is_empty(&self) -> bool {
-        self.controls.is_empty()
     }
 
     /// Set the value of the control at the given index. The value will be
