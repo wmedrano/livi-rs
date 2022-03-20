@@ -41,11 +41,13 @@ fn main() {
     // Keep reference to client to prevent it from dropping.
     let _active_client = client.activate_async((), process_handler).unwrap();
 
-    std::thread::park();
-    loop {
+    std::thread::spawn(move || loop {
         workers.run_workers();
+        // Add some sleep to avoid busy looping.
+        // Busy looping may lead to increased CPU usage.
         std::thread::sleep(std::time::Duration::from_millis(100));
-    }
+    });
+    std::thread::park();
 }
 
 struct Processor {

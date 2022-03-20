@@ -40,6 +40,12 @@
 //! // Plugins may push asynchronous works to the worker. When operating in
 //! // Realtime, `run_workers` should be run in a separate thread.
 //! worker_manager.run_workers();
+//! std::thread::spawn(move || loop {
+//!     workers.run_workers();
+//!     // Add some sleep to avoid busy looping.
+//!     // Busy looping may lead to increased CPU usage.
+//!     std::thread::sleep(std::time::Duration::from_millis(100));
+//! })
 //! ```
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -47,7 +53,9 @@ use std::sync::Arc;
 pub use features::worker::{Worker, WorkerManager};
 pub use features::{Features, FeaturesBuilder};
 pub use plugin::{Instance, Plugin};
-pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
+pub use port::{
+    Controls, EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType,
+};
 
 /// Contains all the error types for the `livi` crate.
 pub mod error;
