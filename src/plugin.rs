@@ -214,6 +214,7 @@ pub struct Instance {
     _features: Arc<Features>,
 }
 
+unsafe impl Sync for Instance {}
 unsafe impl Send for Instance {}
 
 impl Instance {

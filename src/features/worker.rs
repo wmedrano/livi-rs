@@ -98,6 +98,7 @@ pub struct Worker {
 }
 
 unsafe impl Send for Worker {}
+unsafe impl Sync for Worker {}
 
 impl Worker {
     pub(crate) fn new(
