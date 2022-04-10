@@ -21,7 +21,8 @@ ringbuf = "0.2.6"
 
 [dev-dependencies]
 env_logger = "0.9"
-jack = {version = "0.9", default_features = false}# default_features do not work with pipewire.
+jack-sys = {version = "0.3.4", default_features=false}
+jack = {version = "0.9", default_features=false}
 lazy_static = "1.4"
 structopt = "0.3"
 tempfile = "3.3.0"
