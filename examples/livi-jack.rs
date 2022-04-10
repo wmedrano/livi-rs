@@ -47,6 +47,7 @@ fn main() {
         // Busy looping may lead to increased CPU usage.
         std::thread::sleep(std::time::Duration::from_millis(100));
     });
+    unsafe { jack_sys::jack_get_internal_client_name(_active_client.as_client().raw(), 0) };
     std::thread::park();
 }
 
