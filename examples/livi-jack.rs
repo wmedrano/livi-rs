@@ -3,7 +3,7 @@
 /// Run with: `cargo run --release -- --plugin-uri=${PLUGIN_URI}`
 use livi::event::LV2AtomSequence;
 use log::{debug, error, info, warn};
-use std::{convert::TryFrom, sync::Arc};
+use std::{convert::TryFrom, str::FromStr, sync::Arc};
 use structopt::StructOpt;
 
 /// The configuration for the backend.
@@ -21,6 +21,11 @@ struct Configuration {
     /// "debug", and "trace".
     #[structopt(long = "log-level", default_value = "info")]
     log_level: log::LevelFilter,
+
+    /// The ports to automatically connect. The values are playback [default]
+    /// and none.
+    #[structopt(long = "auto-connect", default_value = "playback")]
+    auto_connect: AutoConnect,
 }
 
 fn main() {
@@ -37,9 +42,35 @@ fn main() {
     info!("Created jack client {:?} with status {:?}.", client, status);
 
     let (process_handler, workers) = Processor::new(&livi, plugin, &client);
+    let plugin_audio_output_ports = process_handler.output_audio_ports();
 
     // Keep reference to client to prevent it from dropping.
-    let _active_client = client.activate_async((), process_handler).unwrap();
+    let active_client = client.activate_async((), process_handler).unwrap();
+    let audio_playback_ports = active_client.as_client().ports(
+        None,
+        None,
+        jack::PortFlags::IS_INPUT | jack::PortFlags::IS_PHYSICAL,
+    );
+    if config.auto_connect == AutoConnect::Playback {
+        for (plugin_port, playback_port) in plugin_audio_output_ports
+            .iter()
+            .zip(audio_playback_ports.iter())
+        {
+            match active_client
+                .as_client()
+                .connect_ports_by_name(plugin_port.as_str(), playback_port.as_str())
+            {
+                Ok(()) => info!(
+                    "Automatically connected port {} to {}.",
+                    plugin_port, playback_port
+                ),
+                Err(err) => error!(
+                    "Failed to connect port {} to {}: {:?}.",
+                    plugin_port, playback_port, err
+                ),
+            };
+        }
+    }
 
     std::thread::spawn(move || loop {
         workers.run_workers();
@@ -134,6 +165,13 @@ impl Processor {
             worker_manager,
         )
     }
+
+    fn output_audio_ports(&self) -> Vec<String> {
+        self.audio_outputs
+            .iter()
+            .map(|p| p.name().unwrap())
+            .collect()
+    }
 }
 
 impl jack::ProcessHandler for Processor {
@@ -212,5 +250,24 @@ fn copy_atom_sequence_to_midi_out(
             Ok(()) => (),
             Err(e) => debug!("Failed to write midi event: {:?}", e),
         }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum AutoConnect {
+    None,
+    Playback,
+}
+
+impl FromStr for AutoConnect {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.eq_ignore_ascii_case("none") {
+            return Ok(AutoConnect::None);
+        }
+        if s.eq_ignore_ascii_case("playback") {
+            return Ok(AutoConnect::Playback);
+        }
+        Err(format!("{} not recognized", s))
     }
 }
