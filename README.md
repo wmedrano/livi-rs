@@ -24,7 +24,7 @@ out of the box.
 
 ## Quickstart
 
-Below is an example on how to run the mda EPiano plugin.
+This Rust code is for a plugin called mda EPiano. The code sets up the plugin and then runs it. The results of the plugin are stored in the outputs variable.
 
 ```rust
 let world = livi::World::new();
