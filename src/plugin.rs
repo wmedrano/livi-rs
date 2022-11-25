@@ -506,7 +506,6 @@ mod tests {
         let features = world.build_features(crate::features::FeaturesBuilder {
             min_block_length: block_size,
             max_block_length: block_size,
-            worker_manager: Default::default(),
         });
         let mut instance = unsafe {
             plugin
@@ -542,7 +541,6 @@ mod tests {
         let features = world.build_features(crate::features::FeaturesBuilder {
             min_block_length: supported_block_size.0,
             max_block_length: supported_block_size.1,
-            worker_manager: Default::default(),
         });
         let mut instance = unsafe {
             plugin
@@ -570,7 +568,6 @@ mod tests {
         let features = world.build_features(crate::features::FeaturesBuilder {
             min_block_length: supported_block_size.0,
             max_block_length: supported_block_size.1,
-            worker_manager: Default::default(),
         });
         let mut instance = unsafe {
             plugin

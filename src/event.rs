@@ -330,7 +330,6 @@ mod tests {
         TEST_WORLD.build_features(crate::features::FeaturesBuilder {
             min_block_length: 1024,
             max_block_length: 1024,
-            worker_manager: Default::default(),
         })
     }
 

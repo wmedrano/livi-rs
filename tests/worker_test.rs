@@ -35,10 +35,9 @@
 // thread while the worker will be run in a non-realtime thread.
 
 use livi::event::{LV2AtomEventBuilder, LV2AtomSequence};
-use livi::{EmptyPortConnections, Features, Instance, WorkerManager, World};
+use livi::{EmptyPortConnections, Features, Instance, World};
 use std::ffi::CStr;
 use std::mem::size_of;
-use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 const MIN_BLOCK_SIZE: usize = 1;
@@ -183,11 +182,9 @@ fn test_sampler() {
     let plugin = world
         .plugin_by_uri("http://lv2plug.in/plugins/eg-sampler")
         .expect("Plugin not found.");
-    let worker_manager = Arc::new(WorkerManager::default());
     let features = world.build_features(livi::FeaturesBuilder {
         min_block_length: MIN_BLOCK_SIZE,
         max_block_length: MAX_BLOCK_SIZE,
-        worker_manager: worker_manager.clone(),
     });
     let mut instance = unsafe {
         plugin
@@ -213,12 +210,8 @@ fn test_sampler() {
     let outputs = run_instance_with_input_sequence(&mut instance, &features, input);
     assert_silence(outputs);
 
-    // The worker is probably going to run in some other thread,
-    // so this proves that both Worker & WorkerManager are Send.
-    let thread = std::thread::spawn(move || {
-        worker_manager.run_workers();
-    });
-    thread.join().unwrap();
+    // Run the worker manually to ensure it has run before inspecting the outputs.
+    features.worker_manager().run_workers();
 
     let outputs = run_instance_with_single_midi_note_input(&mut instance, &features);
     assert_silence(outputs);

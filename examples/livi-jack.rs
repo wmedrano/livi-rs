@@ -72,7 +72,6 @@ impl Processor {
         let features = world.build_features(livi::FeaturesBuilder {
             min_block_length: buffer_size,
             max_block_length: buffer_size,
-            worker_manager: worker_manager.clone(),
         });
         #[allow(clippy::cast_precision_loss)]
         let plugin_instance = unsafe {

@@ -29,11 +29,9 @@ This Rust code is for a plugin called mda EPiano. The code sets up the plugin an
 ```rust
 let world = livi::World::new();
 const SAMPLE_RATE: f64 = 44100.0;
-let worker_manager = std::sync::Arc::new(livi::WorkerManager::default());
 let features = world.build_features(livi::FeaturesBuilder {
     min_block_length: 1,
     max_block_length: 4096,
-    worker_manager: worker_manager.clone(),
 });
 let plugin = world
     // This is the URI for mda EPiano. You can use the `lv2ls` command line
@@ -67,15 +65,6 @@ let ports = livi::EmptyPortConnections::new()
     .with_atom_sequence_inputs(std::iter::once(&input))
     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()));
 unsafe { instance.run(features.max_block_length(), ports).unwrap() };
-
-// Plugins may push asynchronous works to the worker. When operating in
-// Realtime, `run_workers` should be run in a separate thread.
-std::thread::spawn(move || {
-    worker_manager.run_workers();
-    std::thread::sleep(std::time::Duration::from_millis(100));
-});
-
-std::thread::park();
 ```
 
 ## Building, Testing, and Running
