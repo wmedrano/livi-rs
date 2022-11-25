@@ -140,8 +140,8 @@ impl Features {
         self.urid_map.unmap(urid)
     }
 
-    /// The worker manager. This is run periodically to perform any asynchronous work that plugins
-    /// have scheduled.
+    /// The worker manager. This is automatically run periodically to perform
+    /// any asynchronous work that plugins have scheduled.
     pub fn worker_manager(&self) -> &Arc<WorkerManager> {
         &self.worker_manager
     }
