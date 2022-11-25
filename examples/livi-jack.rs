@@ -3,7 +3,7 @@
 /// Run with: `cargo run --release -- --plugin-uri=${PLUGIN_URI}`
 use livi::event::LV2AtomSequence;
 use log::{debug, error, info, warn};
-use std::{convert::TryFrom, sync::Arc};
+use std::convert::TryFrom;
 use structopt::StructOpt;
 
 /// The configuration for the backend.
@@ -36,17 +36,10 @@ fn main() {
         jack::Client::new(&plugin.name(), jack::ClientOptions::NO_START_SERVER).unwrap();
     info!("Created jack client {:?} with status {:?}.", client, status);
 
-    let (process_handler, workers) = Processor::new(&livi, plugin, &client);
+    let process_handler = Processor::new(&livi, plugin, &client);
 
     // Keep reference to client to prevent it from dropping.
     let _active_client = client.activate_async((), process_handler).unwrap();
-
-    std::thread::spawn(move || loop {
-        workers.run_workers();
-        // Add some sleep to avoid busy looping.
-        // Busy looping may lead to increased CPU usage.
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    });
     std::thread::park();
 }
 
@@ -62,13 +55,8 @@ struct Processor {
 }
 
 impl Processor {
-    fn new(
-        world: &livi::World,
-        plugin: livi::Plugin,
-        client: &jack::Client,
-    ) -> (Processor, Arc<livi::WorkerManager>) {
+    fn new(world: &livi::World, plugin: livi::Plugin, client: &jack::Client) -> Processor {
         let buffer_size = client.buffer_size() as usize;
-        let worker_manager = Arc::new(livi::WorkerManager::default());
         let features = world.build_features(livi::FeaturesBuilder {
             min_block_length: buffer_size,
             max_block_length: buffer_size,
@@ -119,19 +107,16 @@ impl Processor {
                     .unwrap()
             })
             .collect();
-        (
-            Processor {
-                plugin: plugin_instance,
-                midi_urid: features.midi_urid(),
-                audio_inputs,
-                audio_outputs,
-                event_inputs,
-                event_outputs,
-                cv_inputs,
-                cv_outputs,
-            },
-            worker_manager,
-        )
+        Processor {
+            plugin: plugin_instance,
+            midi_urid: features.midi_urid(),
+            audio_inputs,
+            audio_outputs,
+            event_inputs,
+            event_outputs,
+            cv_inputs,
+            cv_outputs,
+        }
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
 };
 use lv2_raw::LV2Feature;
 use lv2_sys::LV2_Worker_Schedule;
-use ringbuf::Producer;
+use ringbuf::HeapProducer;
 
 /// A plugin that can be used to instantiate plugin instances.
 #[derive(Clone)]
@@ -75,7 +75,8 @@ impl Plugin {
         let (instance_to_worker_sender, instance_to_worker_receiver) = worker::instantiate_queue();
         let (worker_to_instance_sender, worker_to_instance_receiver) = worker::instantiate_queue();
         let mut instance_to_worker_sender = Box::new(instance_to_worker_sender);
-        let instance_to_worker_sender_ptr: *mut Producer<u8> = instance_to_worker_sender.as_mut();
+        let instance_to_worker_sender_ptr: *mut HeapProducer<u8> =
+            instance_to_worker_sender.as_mut();
         let mut worker_schedule = Box::new(lv2_sys::LV2_Worker_Schedule {
             handle: instance_to_worker_sender_ptr.cast(),
             schedule_work: Some(worker::schedule_work),
