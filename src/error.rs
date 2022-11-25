@@ -19,7 +19,7 @@ pub enum EventError {
 }
 
 /// An error associated with running a plugin.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum RunError {
     /// The sample count is smaller than the minimum that is allowed. The
     /// supported size is set when initializing the `livi::World` object.

@@ -8,7 +8,7 @@ license = "MIT"
 name = "livi"
 readme = "README.md"
 repository = "https://github.com/wmedrano/livi-rs"
-version = "0.5.3"
+version = "0.5.4"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,8 +20,8 @@ lv2_raw = "0.2"
 ringbuf = "0.2.6"
 
 [dev-dependencies]
-env_logger = "0.9"
-jack = {version = "0.9", default_features = false}# default_features do not work with pipewire.
+env_logger = "0.10"
+jack = {version = "0.11"}
 lazy_static = "1.4"
 structopt = "0.3"
 tempfile = "3.3.0"

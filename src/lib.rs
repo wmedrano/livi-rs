@@ -256,7 +256,6 @@ mod tests {
         let features = world.build_features(crate::features::FeaturesBuilder {
             min_block_length: MIN_BLOCK_SIZE,
             max_block_length: MAX_BLOCK_SIZE,
-            worker_manager: Default::default(),
         });
         assert!(features.midi_urid() > 0, "midi urid is not valid");
     }
@@ -268,7 +267,6 @@ mod tests {
         let features = world.build_features(crate::features::FeaturesBuilder {
             min_block_length: block_size,
             max_block_length: block_size,
-            worker_manager: Default::default(),
         });
         for plugin in world.iter_plugins() {
             println!("Running plugin: {}", plugin.uri());
@@ -352,7 +350,6 @@ mod tests {
         let features = world.build_features(FeaturesBuilder {
             min_block_length: MIN_BLOCK_SIZE,
             max_block_length: MAX_BLOCK_SIZE,
-            worker_manager: Default::default(),
         });
         let mut instance = unsafe {
             plugin
@@ -418,7 +415,6 @@ mod tests {
         let features = world.build_features(FeaturesBuilder {
             min_block_length: block_size,
             max_block_length: block_size,
-            worker_manager: Default::default(),
         });
         let mut instance = unsafe {
             plugin

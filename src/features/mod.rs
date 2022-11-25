@@ -2,6 +2,7 @@ use crate::WorkerManager;
 use lv2_raw::LV2Feature;
 use lv2_sys::LV2_BUF_SIZE__boundedBlockLength;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::{collections::HashSet, ffi::CStr};
 
@@ -17,9 +18,6 @@ pub struct FeaturesBuilder {
     /// The maximum block size. If plugins try to process more samples than this
     /// on a single `run` call, an error will be returned.
     pub max_block_length: usize,
-    /// The worker manager. Plugins will execute asynchronous work to be done by
-    /// this worker manager.
-    pub worker_manager: Arc<WorkerManager>,
 }
 
 impl Default for FeaturesBuilder {
@@ -27,7 +25,6 @@ impl Default for FeaturesBuilder {
         FeaturesBuilder {
             min_block_length: 1,
             max_block_length: 4096,
-            worker_manager: Arc::default(),
         }
     }
 }
@@ -35,6 +32,17 @@ impl Default for FeaturesBuilder {
 impl FeaturesBuilder {
     /// Build a new `Features` object.
     pub fn build(self, _world: &crate::World) -> Arc<Features> {
+        let worker_manager = Arc::new(WorkerManager::default());
+        let keep_worker_thread_alive = Arc::new(AtomicBool::new(true));
+
+        let keep_alive = keep_worker_thread_alive.clone();
+        let workers = worker_manager.clone();
+        let worker_thread = std::thread::spawn(move || {
+            while keep_alive.load(std::sync::atomic::Ordering::Relaxed) {
+                workers.run_workers();
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
         let mut features = Features {
             urid_map: urid_map::UridMap::new(),
             options: options::Options::new(),
@@ -44,7 +52,9 @@ impl FeaturesBuilder {
                 uri: LV2_BUF_SIZE__boundedBlockLength.as_ptr().cast(),
                 data: std::ptr::null_mut(),
             },
-            worker_manager: self.worker_manager,
+            worker_manager,
+            _worker_thread: worker_thread,
+            keep_worker_thread_alive,
         };
         features.options.set_int_option(
             &features.urid_map,
@@ -74,6 +84,8 @@ pub struct Features {
     min_block_length: usize,
     max_block_length: usize,
     worker_manager: Arc<WorkerManager>,
+    _worker_thread: std::thread::JoinHandle<()>,
+    keep_worker_thread_alive: Arc<AtomicBool>,
 }
 
 impl Features {
@@ -128,9 +140,16 @@ impl Features {
         self.urid_map.unmap(urid)
     }
 
-    /// The worker manager. This should be run periodically to perform any
-    /// asynchronous work that plugins have scheduled.
+    /// The worker manager. This is automatically run periodically to perform
+    /// any asynchronous work that plugins have scheduled.
     pub fn worker_manager(&self) -> &Arc<WorkerManager> {
         &self.worker_manager
+    }
+}
+
+impl Drop for Features {
+    fn drop(&mut self) {
+        self.keep_worker_thread_alive
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 }

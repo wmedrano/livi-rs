@@ -215,20 +215,15 @@ pub(crate) fn end_run(
 /// # let plugin = world
 /// #     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
 /// #     .expect("Plugin not found.");
-/// let worker_manager = std::sync::Arc::new(livi::WorkerManager::default());
 /// let features = world.build_features(livi::FeaturesBuilder{
 ///     min_block_length: MIN_BLOCK_SIZE,
 ///     max_block_length: MAX_BLOCK_SIZE,
-///     worker_manager: worker_manager.clone(),
 /// });
 /// let mut instance = unsafe {
 ///     plugin
 ///         .instantiate(features.clone(), SAMPLE_RATE)
 ///         .expect("Could not instantiate plugin.")
 /// };
-///
-/// // Call this periodically to drive workers.
-/// worker_manager.run_workers();
 /// ```
 #[derive(Default)]
 pub struct WorkerManager {
