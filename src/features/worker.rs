@@ -1,11 +1,10 @@
 use core::ffi::c_void;
-use ringbuf::{Consumer, Producer, RingBuffer};
 use std::mem::size_of;
 use std::slice;
 use std::sync::{Arc, Mutex};
 
-pub(crate) type WorkerMessageSender = Producer<u8>;
-pub(crate) type WorkerMessageReceiver = Consumer<u8>;
+pub(crate) type WorkerMessageSender = ringbuf::HeapProducer<u8>;
+pub(crate) type WorkerMessageReceiver = ringbuf::HeapConsumer<u8>;
 
 const MAX_MESSAGE_SIZE: usize = 8192;
 const N_MESSAGES: usize = 4;
@@ -25,7 +24,7 @@ impl WorkerMessage {
 }
 
 pub(crate) fn instantiate_queue() -> (WorkerMessageSender, WorkerMessageReceiver) {
-    let (sender, receiver) = RingBuffer::<u8>::new(MAX_MESSAGE_SIZE * N_MESSAGES).split();
+    let (sender, receiver) = ringbuf::HeapRb::new(MAX_MESSAGE_SIZE * N_MESSAGES).split();
     (sender, receiver)
 }
 
@@ -39,7 +38,7 @@ fn publish_message(
     }
     let mut body = unsafe { slice::from_raw_parts(body, size) };
     let total_size = size_of::<usize>() + size;
-    if sender.remaining() < total_size {
+    if sender.free_len() < total_size {
         return lv2_sys::LV2_Worker_Status_LV2_WORKER_ERR_NO_SPACE;
     }
     let size_as_bytes = size.to_be_bytes();
