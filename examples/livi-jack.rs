@@ -135,7 +135,7 @@ impl Processor {
         );
         for (output, input) in self.audio_outputs.iter().zip(playback_ports.iter()) {
             let output = output.name().unwrap_or_default();
-            match client.connect_ports_by_name(&output, &input) {
+            match client.connect_ports_by_name(&output, input) {
                 Ok(()) => info!("Connected audio port {:?} to {:?}.", output, input),
                 Err(err) => error!(
                     "Failed to connect audio port {:?} to {:?}. Error: {:?}.",
@@ -155,7 +155,7 @@ impl Processor {
             .zip(self.event_inputs.iter().cycle())
         {
             let input = input.name().unwrap_or_default();
-            match client.connect_ports_by_name(&output, &input) {
+            match client.connect_ports_by_name(output, &input) {
                 Ok(()) => info!("Connected midi port {:?} to {:?}.", output, input),
                 Err(err) => error!(
                     "Failed to connect midi port {:?} to {:?}. Error: {:?}.",
