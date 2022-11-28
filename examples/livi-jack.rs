@@ -21,6 +21,10 @@ struct Configuration {
     /// "debug", and "trace".
     #[structopt(long = "log-level", default_value = "info")]
     log_level: log::LevelFilter,
+
+    /// If ports should automatticaly be connected.
+    #[structopt(long = "autoconnect", parse(try_from_str), default_value = "true")]
+    autoconnect: bool,
 }
 
 fn main() {
@@ -37,6 +41,9 @@ fn main() {
     info!("Created jack client {:?} with status {:?}.", client, status);
 
     let process_handler = Processor::new(&livi, plugin, &client);
+    if config.autoconnect {
+        process_handler.autoconnect(&client);
+    }
 
     // Keep reference to client to prevent it from dropping.
     let _active_client = client.activate_async((), process_handler).unwrap();
@@ -116,6 +123,45 @@ impl Processor {
             event_outputs,
             cv_inputs,
             cv_outputs,
+        }
+    }
+
+    fn autoconnect(&self, client: &jack::Client) {
+        info!("Connecting audio outputs to playback devices.");
+        let playback_ports = client.ports(
+            None,
+            Some(jack::jack_sys::FLOAT_MONO_AUDIO),
+            jack::PortFlags::IS_PHYSICAL | jack::PortFlags::IS_INPUT,
+        );
+        for (output, input) in self.audio_outputs.iter().zip(playback_ports.iter()) {
+            let output = output.name().unwrap_or_default();
+            match client.connect_ports_by_name(&output, &input) {
+                Ok(()) => info!("Connected audio port {:?} to {:?}.", output, input),
+                Err(err) => error!(
+                    "Failed to connect audio port {:?} to {:?}. Error: {:?}.",
+                    output, input, err
+                ),
+            };
+        }
+
+        info!("Connecting midi devices to midi inputs.");
+        let midi_input_devices = client.ports(
+            None,
+            Some(jack::jack_sys::RAW_MIDI_TYPE),
+            jack::PortFlags::IS_OUTPUT,
+        );
+        for (output, (input, _)) in midi_input_devices
+            .iter()
+            .zip(self.event_inputs.iter().cycle())
+        {
+            let input = input.name().unwrap_or_default();
+            match client.connect_ports_by_name(&output, &input) {
+                Ok(()) => info!("Connected midi port {:?} to {:?}.", output, input),
+                Err(err) => error!(
+                    "Failed to connect midi port {:?} to {:?}. Error: {:?}.",
+                    output, input, err
+                ),
+            };
         }
     }
 }
