@@ -25,6 +25,10 @@ struct Configuration {
     /// If ports should automatticaly be connected.
     #[structopt(long = "autoconnect", parse(try_from_str), default_value = "true")]
     autoconnect: bool,
+
+    /// The volume of the outputs. Should be between 0.0 and 1.0.
+    #[structopt(long = "volume", default_value = "0.3")]
+    volume: f32,
 }
 
 fn main() {
@@ -40,7 +44,7 @@ fn main() {
         jack::Client::new(&plugin.name(), jack::ClientOptions::NO_START_SERVER).unwrap();
     info!("Created jack client {:?} with status {:?}.", client, status);
 
-    let process_handler = Processor::new(&livi, plugin, &client);
+    let process_handler = Processor::new(&livi, plugin, &client, config.volume);
     if config.autoconnect {
         process_handler.autoconnect(&client);
     }
@@ -59,13 +63,19 @@ struct Processor {
     event_outputs: Vec<(jack::Port<jack::MidiOut>, LV2AtomSequence)>,
     cv_inputs: Vec<jack::Port<jack::AudioIn>>,
     cv_outputs: Vec<jack::Port<jack::AudioOut>>,
+    volume: f32,
 }
 
 impl Processor {
-    fn new(world: &livi::World, plugin: livi::Plugin, client: &jack::Client) -> Processor {
+    fn new(
+        world: &livi::World,
+        plugin: livi::Plugin,
+        client: &jack::Client,
+        volume: f32,
+    ) -> Processor {
         let buffer_size = client.buffer_size() as usize;
         let features = world.build_features(livi::FeaturesBuilder {
-            min_block_length: buffer_size,
+            min_block_length: 1,
             max_block_length: buffer_size,
         });
         #[allow(clippy::cast_precision_loss)]
@@ -123,6 +133,7 @@ impl Processor {
             event_outputs,
             cv_inputs,
             cv_outputs,
+            volume,
         }
     }
 
@@ -189,6 +200,11 @@ impl jack::ProcessHandler for Processor {
         }
         for (dst, src) in &mut self.event_outputs.iter_mut() {
             copy_atom_sequence_to_midi_out(src, dst, ps, self.midi_urid)
+        }
+        for port in self.audio_outputs.iter_mut() {
+            for sample in port.as_mut_slice(ps) {
+                *sample *= self.volume;
+            }
         }
         jack::Control::Continue
     }
