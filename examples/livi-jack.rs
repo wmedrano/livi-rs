@@ -203,7 +203,7 @@ impl jack::ProcessHandler for Processor {
         }
         for port in self.audio_outputs.iter_mut() {
             for sample in port.as_mut_slice(ps) {
-                *sample = *sample * self.volume;
+                *sample *= self.volume;
             }
         }
         jack::Control::Continue
