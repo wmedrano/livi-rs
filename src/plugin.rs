@@ -184,6 +184,12 @@ impl Debug for Plugin {
     }
 }
 
+impl PartialEq for Plugin {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.uri() == other.inner.uri()
+    }
+}
+
 struct PortsDebug<'a> {
     plugin: &'a Plugin,
 }
