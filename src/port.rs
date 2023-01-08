@@ -332,6 +332,7 @@ pub struct PortCounts {
     pub cv_outputs: usize,
 }
 
+#[derive(Debug)]
 struct DetailedPortValues {
     port_index: PortIndex,
     value: f32,
@@ -341,6 +342,7 @@ struct DetailedPortValues {
 
 /// Controls holds the values of control ports. These are also known as
 /// parameters.
+#[derive(Debug)]
 pub(crate) struct Controls {
     controls: Vec<DetailedPortValues>,
 }

@@ -146,6 +146,18 @@ impl Worker {
     }
 }
 
+impl std::fmt::Debug for Worker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Worker")
+            .field("plugin_is_alive", &self.plugin_is_alive)
+            .field("interface", &self.interface)
+            .field("instance_handle", &self.instance_handle)
+            .field("receiver", &"__internal__")
+            .field("sender", &"__internal__")
+            .finish()
+    }
+}
+
 // Not real-time safe.
 pub(crate) unsafe fn maybe_get_worker_interface(
     plugin: &lilv::plugin::Plugin,
@@ -224,7 +236,7 @@ pub(crate) fn end_run(
 ///         .expect("Could not instantiate plugin.")
 /// };
 /// ```
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct WorkerManager {
     new_workers: Mutex<Vec<Worker>>,
     // Workers that may be in the process of running are kept in a different

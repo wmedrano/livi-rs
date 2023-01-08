@@ -57,3 +57,97 @@ pub enum RunError {
     /// The number of cv outputs was different than what the plugin required.
     CVOutputsSizeMismatch { expected: usize, actual: usize },
 }
+
+impl std::error::Error for InstantiateError {}
+impl std::error::Error for EventError {}
+impl std::error::Error for RunError {}
+
+impl std::fmt::Display for InstantiateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InstantiateError::UnknownError => f.write_str("unknown error"),
+        }
+    }
+}
+
+impl std::fmt::Display for EventError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EventError::DataTooLarge {
+                max_supported_size,
+                actual_size,
+            } => write!(
+                f,
+                "data of size {} is larger than maximum supported size of {}",
+                actual_size, max_supported_size
+            ),
+            EventError::SequenceFull {
+                capacity,
+                requested,
+            } => write!(
+                f,
+                "sequence with capacity {} is full but requested {}",
+                capacity, requested
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunError::SampleCountTooSmall {
+                min_supported,
+                actual,
+            } => write!(
+                f,
+                "sample count of {} is less than minimum supported sample count of {}",
+                actual, min_supported
+            ),
+            RunError::SampleCountTooLarge {
+                max_supported,
+                actual,
+            } => write!(
+                f,
+                "sample count of {} is more than maximum supported sample count of {}",
+                actual, max_supported
+            ),
+            RunError::AudioInputsSizeMismatch { expected, actual } => {
+                write!(f, "expected {} audio inputs but found {}", expected, actual)
+            }
+            RunError::AudioInputSampleCountTooSmall { expected, actual } => write!(
+                f,
+                "audio input required at least {} samples but has {}",
+                expected, actual
+            ),
+            RunError::AudioOutputsSizeMismatch { expected, actual } => write!(
+                f,
+                "expected {} audio outputs but found {}",
+                expected, actual
+            ),
+            RunError::AudioOutputSampleCountTooSmall { expected, actual } => write!(
+                f,
+                "audio output required at least {} samples but has {}",
+                expected, actual
+            ),
+            RunError::AtomSequenceInputsSizeMismatch { expected, actual } => write!(
+                f,
+                "expected {} atom sequence inputs but found {}",
+                expected, actual
+            ),
+            RunError::AtomSequenceOutputsSizeMismatch { expected, actual } => write!(
+                f,
+                "expected {} atom sequence outputs but found {}",
+                expected, actual
+            ),
+            RunError::CVInputsSizeMismatch { expected, actual } => {
+                write!(f, "expected {} cv inputs but found {}", expected, actual)
+            }
+            RunError::CVOutputsSizeMismatch { expected, actual } => write!(
+                f,
+                "cv output required at least {} samples but has {}",
+                expected, actual
+            ),
+        }
+    }
+}

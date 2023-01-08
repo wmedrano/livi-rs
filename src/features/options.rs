@@ -72,3 +72,13 @@ impl Options {
         self.feature.data = self.data.as_mut_ptr().cast();
     }
 }
+
+impl std::fmt::Debug for Options {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Options")
+            .field("data", &self.data)
+            .field("values", &self.values)
+            .field("feature", &"__feature__")
+            .finish()
+    }
+}

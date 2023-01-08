@@ -11,6 +11,7 @@ pub mod urid_map;
 pub mod worker;
 
 /// A builder for `Features` objects.
+#[derive(Clone, Debug)]
 pub struct FeaturesBuilder {
     /// The minimum block size. If plugins try to process less samples than this
     /// on a single `run` call, an error will be returned.
@@ -144,6 +145,21 @@ impl Features {
     /// any asynchronous work that plugins have scheduled.
     pub fn worker_manager(&self) -> &Arc<WorkerManager> {
         &self.worker_manager
+    }
+}
+
+impl std::fmt::Debug for Features {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Features")
+            .field("urid_map", &self.urid_map)
+            .field("options", &self.options)
+            .field("bounded_block_length", &"__uri__")
+            .field("min_block_length", &self.min_block_length)
+            .field("max_block_length", &self.max_block_length)
+            .field("worker_manager", &self.worker_manager)
+            .field("_worker_thread", &self._worker_thread)
+            .field("keep_worker_thread_alive", &self.keep_worker_thread_alive)
+            .finish()
     }
 }
 

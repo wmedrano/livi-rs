@@ -214,6 +214,15 @@ impl Default for World {
     }
 }
 
+impl std::fmt::Debug for World {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("World")
+            .field("livi_plugins", &self.livi_plugins)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
 struct CommonUris {
     input_port_uri: lilv::node::Node,
     output_port_uri: lilv::node::Node,

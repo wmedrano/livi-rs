@@ -89,6 +89,12 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
     }
 }
 
+impl<const MAX_SIZE: usize> Debug for LV2AtomEventBuilder<MAX_SIZE> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LV2AtomEventBuilder").finish()
+    }
+}
+
 /// An atom sequence.
 pub struct LV2AtomSequence {
     atom_sequence_urid: lv2_raw::LV2Urid,

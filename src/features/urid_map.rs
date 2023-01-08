@@ -112,3 +112,9 @@ impl UridMap {
         &self.urid_unmap_feature
     }
 }
+
+impl std::fmt::Debug for UridMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UridMap").field("map", &self.map).finish()
+    }
+}

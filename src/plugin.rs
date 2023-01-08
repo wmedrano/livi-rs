@@ -184,6 +184,13 @@ impl Debug for Plugin {
     }
 }
 
+impl std::fmt::Display for Plugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = self.inner.name();
+        f.write_str(name.as_str().unwrap_or("BAD_NAME"))
+    }
+}
+
 impl PartialEq for Plugin {
     fn eq(&self, other: &Self) -> bool {
         self.inner.uri() == other.inner.uri()
@@ -423,6 +430,30 @@ impl Instance {
             cv_inputs: self.port_counts_for_type(PortType::CVInput),
             cv_outputs: self.port_counts_for_type(PortType::CVOutput),
         }
+    }
+}
+
+impl Debug for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Instance")
+            .field("plugin", &self.inner.instance().uri())
+            .field("min_block_size", &self.min_block_size)
+            .field("max_block_size", &self.max_block_size)
+            .field("control_inputs", &self.control_inputs)
+            .field("control_outputs", &self.control_outputs)
+            .field("audio_inputs", &self.audio_inputs)
+            .field("audio_outputs", &self.audio_outputs)
+            .field("atom_sequence_inputs", &self.atom_sequence_inputs)
+            .field("atom_sequence_outputs", &self.atom_sequence_outputs)
+            .field("cv_inputs", &self.cv_inputs)
+            .field("cv_outputs", &self.cv_outputs)
+            .field("worker_interface", &self.worker_interface)
+            .field("worker_to_instance_receiver", &"__ringbuf_receiver__")
+            .field("_worker_schedule", &self._worker_schedule)
+            .field("_instance_to_worker_sender", &"__ringbuf_sender__")
+            .field("is_alive", &self.is_alive)
+            .field("_features", &self._features)
+            .finish()
     }
 }
 
