@@ -89,6 +89,9 @@ pub struct Features {
     keep_worker_thread_alive: Arc<AtomicBool>,
 }
 
+unsafe impl Send for Features {}
+unsafe impl Sync for Features {}
+
 impl Features {
     /// Get the URIs for all supported features.
     pub fn supported_features() -> HashSet<&'static str> {
