@@ -165,7 +165,7 @@ impl LV2AtomSequence {
             std::mem::size_of_val(&sequence.atom) as u32 + sequence.atom.size;
         if (self.buffer.len() as u32) < current_sequence_size + event_size {
             return Err(EventError::SequenceFull {
-                capacity: self.capacity() as usize,
+                capacity: self.capacity(),
                 requested: (current_sequence_size + event_size) as usize,
             });
         }

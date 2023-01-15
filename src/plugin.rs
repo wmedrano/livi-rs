@@ -535,7 +535,7 @@ fn node_to_value(maybe_node: &Option<lilv::node::Node>) -> f32 {
         None => return 0.0,
     };
     if n.is_float() {
-        n.as_float().map(|f| f as f32).unwrap_or(0.0)
+        n.as_float().unwrap_or(0.0)
     } else if n.is_int() {
         n.as_int().unwrap_or(0) as f32
     } else if n.as_bool().unwrap_or(false) {

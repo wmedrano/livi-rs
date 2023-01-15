@@ -3,7 +3,6 @@
 //! let world = livi::World::new();
 //! const SAMPLE_RATE: f64 = 44100.0;
 //! let features = world.build_features(livi::FeaturesBuilder::default());
-//! let worker_manager = features.worker_manager().clone();
 //! let plugin = world
 //!     // This is the URI for mda EPiano. You can use the `lv2ls` command line
 //!     // utility to see all available LV2 plugins.
@@ -36,15 +35,6 @@
 //!     .with_atom_sequence_inputs(std::iter::once(&input))
 //!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()));
 //! unsafe { instance.run(features.max_block_length(), ports).unwrap() };
-//!
-//! // Plugins may push asynchronous works to the worker. When operating in
-//! // Realtime, `run_workers` should be run in a separate thread.
-//! std::thread::spawn(move || loop {
-//!     worker_manager.run_workers();
-//!     // Add some sleep to avoid busy looping.
-//!     // Busy looping may lead to increased CPU usage.
-//!     std::thread::sleep(std::time::Duration::from_millis(100));
-//! });
 //! ```
 use log::{debug, error, info, warn};
 use std::sync::Arc;
