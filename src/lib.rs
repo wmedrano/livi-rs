@@ -44,6 +44,9 @@ pub use features::{Features, FeaturesBuilder};
 pub use plugin::{Instance, Plugin};
 pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
 
+/// The underlying `lilv` library.
+pub use lilv;
+
 /// Contains all the error types for the `livi` crate.
 pub mod error;
 /// Contains utility for dealing with `LV2` events.
@@ -54,6 +57,7 @@ mod port;
 
 /// Contains all plugins.
 pub struct World {
+    world: lilv::World,
     livi_plugins: Vec<Plugin>,
 }
 
@@ -82,8 +86,14 @@ impl World {
             .collect();
 
         World {
+            world,
             livi_plugins: plugins,
         }
+    }
+
+    /// Get the underlying lilv world.
+    pub fn raw(&self) -> &lilv::World {
+        &self.world
     }
 
     /// Creates a new world that includes all plugins that are found and return
@@ -172,6 +182,7 @@ impl World {
             .inspect(|p| info!("Found plugin {}: {}", p.name(), p.uri()))
             .collect();
         World {
+            world,
             livi_plugins: plugins,
         }
     }

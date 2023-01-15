@@ -178,6 +178,20 @@ where
     CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
     CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
 {
+    /// Returns the number of ports supported by type.
+    pub fn port_counts(&self) -> PortCounts {
+        PortCounts {
+            control_inputs: 0,
+            control_outputs: 0,
+            audio_inputs: self.audio_inputs.len(),
+            audio_outputs: self.audio_outputs.len(),
+            atom_sequence_inputs: self.atom_sequence_inputs.len(),
+            atom_sequence_outputs: self.atom_sequence_outputs.len(),
+            cv_inputs: self.cv_inputs.len(),
+            cv_outputs: self.cv_outputs.len(),
+        }
+    }
+
     /// Create an instance of `PortConnections` with the given audio inputs.
     pub fn with_audio_inputs<I>(
         self,
