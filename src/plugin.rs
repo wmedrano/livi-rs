@@ -390,7 +390,7 @@ impl Instance {
     }
 
     /// Get the underlying `lilv::instance::ActiveInstance`.
-    pub fn raw_mut(&self) -> &mut lilv::instance::ActiveInstance {
+    pub fn raw_mut(&mut self) -> &mut lilv::instance::ActiveInstance {
         &mut self.inner
     }
 
