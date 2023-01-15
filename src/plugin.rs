@@ -285,12 +285,18 @@ impl Instance {
                 actual: samples,
             });
         }
-        if ports.audio_inputs.len() != self.audio_inputs.len() {
-            return Err(RunError::AudioInputsSizeMismatch {
-                expected: self.audio_inputs.len(),
-                actual: ports.audio_inputs.len(),
+        let expected_port_counts = PortCounts {
+            control_inputs: 0,
+            control_outputs: 0,
+            ..self.port_counts()
+        };
+        let actual_port_counts = ports.port_counts();
+        if expected_port_counts != actual_port_counts {
+            return Err(RunError::PortMismatch {
+                expected: expected_port_counts,
+                actual: actual_port_counts,
             });
-        }
+        };
         for (data, index) in ports.audio_inputs.zip(self.audio_inputs.iter()) {
             if data.len() < samples {
                 return Err(RunError::AudioInputSampleCountTooSmall {
@@ -301,12 +307,6 @@ impl Instance {
             self.inner
                 .instance_mut()
                 .connect_port(index.0, data.as_ptr());
-        }
-        if ports.audio_outputs.len() != self.audio_outputs.len() {
-            return Err(RunError::AudioOutputsSizeMismatch {
-                expected: self.audio_outputs.len(),
-                actual: ports.audio_outputs.len(),
-            });
         }
         for (data, index) in ports.audio_outputs.zip(self.audio_outputs.iter()) {
             if data.len() < samples {
@@ -319,12 +319,6 @@ impl Instance {
                 .instance_mut()
                 .connect_port_mut(index.0, data.as_mut_ptr());
         }
-        if ports.atom_sequence_inputs.len() != self.atom_sequence_inputs.len() {
-            return Err(RunError::AtomSequenceInputsSizeMismatch {
-                expected: self.atom_sequence_inputs.len(),
-                actual: ports.atom_sequence_inputs.len(),
-            });
-        }
         for (data, index) in ports
             .atom_sequence_inputs
             .zip(self.atom_sequence_inputs.iter())
@@ -332,12 +326,6 @@ impl Instance {
             self.inner
                 .instance_mut()
                 .connect_port(index.0, data.as_ptr());
-        }
-        if ports.atom_sequence_outputs.len() != self.atom_sequence_outputs.len() {
-            return Err(RunError::AtomSequenceOutputsSizeMismatch {
-                expected: self.atom_sequence_outputs.len(),
-                actual: ports.atom_sequence_outputs.len(),
-            });
         }
         for (data, index) in ports
             .atom_sequence_outputs
@@ -348,22 +336,10 @@ impl Instance {
                 .instance_mut()
                 .connect_port_mut(index.0, data.as_mut_ptr());
         }
-        if ports.cv_inputs.len() != self.cv_inputs.len() {
-            return Err(RunError::CVInputsSizeMismatch {
-                expected: self.cv_inputs.len(),
-                actual: ports.cv_inputs.len(),
-            });
-        }
         for (data, index) in ports.cv_inputs.zip(self.cv_inputs.iter()) {
             self.inner
                 .instance_mut()
                 .connect_port(index.0, data.as_ptr());
-        }
-        if ports.cv_outputs.len() != self.cv_outputs.len() {
-            return Err(RunError::CVOutputsSizeMismatch {
-                expected: self.cv_outputs.len(),
-                actual: ports.cv_outputs.len(),
-            });
         }
         for (data, index) in ports.cv_outputs.zip(self.cv_outputs.iter()) {
             self.inner
@@ -390,7 +366,7 @@ impl Instance {
     }
 
     /// Get the underlying `lilv::instance::ActiveInstance`.
-    pub fn raw_mut(&self) -> &mut lilv::instance::ActiveInstance {
+    pub fn raw_mut(&mut self) -> &mut lilv::instance::ActiveInstance {
         &mut self.inner
     }
 

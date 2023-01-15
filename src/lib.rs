@@ -182,6 +182,7 @@ impl World {
             .inspect(|p| info!("Found plugin {}: {}", p.name(), p.uri()))
             .collect();
         World {
+            world,
             livi_plugins: plugins,
         }
     }
