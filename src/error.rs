@@ -1,5 +1,3 @@
-use crate::PortCounts;
-
 /// An error with plugin instantiation.
 #[derive(Copy, Clone, Debug)]
 pub enum InstantiateError {
@@ -31,19 +29,33 @@ pub enum RunError {
     /// supported size is set when initializing the `livi::World` object.
     SampleCountTooLarge { max_supported: usize, actual: usize },
 
-    /// The number of ports was different than what the plugin required.
-    PortMismatch {
-        expected: PortCounts,
-        actual: PortCounts,
-    },
+    /// The number of audio inputs was different than what the plugin required.
+    AudioInputsSizeMismatch { expected: usize, actual: usize },
 
     /// The number of samples in the audio inputs was too small to contain the
     /// number of specified samples.
     AudioInputSampleCountTooSmall { expected: usize, actual: usize },
 
+    /// The number of audio outputs was different than what the plugin required.
+    AudioOutputsSizeMismatch { expected: usize, actual: usize },
+
     /// The number of samples in the audio inputs was too small to contain the
     /// number of specified samples.
     AudioOutputSampleCountTooSmall { expected: usize, actual: usize },
+
+    /// The number of atom sequence inputs was different than what the plugin
+    /// required.
+    AtomSequenceInputsSizeMismatch { expected: usize, actual: usize },
+
+    /// The number of atom sequence outputs was different than what the plugin
+    /// required.
+    AtomSequenceOutputsSizeMismatch { expected: usize, actual: usize },
+
+    /// The number of cv inputs was different than what the plugin required.
+    CVInputsSizeMismatch { expected: usize, actual: usize },
+
+    /// The number of cv outputs was different than what the plugin required.
+    CVOutputsSizeMismatch { expected: usize, actual: usize },
 }
 
 impl std::error::Error for InstantiateError {}
@@ -100,9 +112,17 @@ impl std::fmt::Display for RunError {
                 "sample count of {} is more than maximum supported sample count of {}",
                 actual, max_supported
             ),
+            RunError::AudioInputsSizeMismatch { expected, actual } => {
+                write!(f, "expected {} audio inputs but found {}", expected, actual)
+            }
             RunError::AudioInputSampleCountTooSmall { expected, actual } => write!(
                 f,
                 "audio input required at least {} samples but has {}",
+                expected, actual
+            ),
+            RunError::AudioOutputsSizeMismatch { expected, actual } => write!(
+                f,
+                "expected {} audio outputs but found {}",
                 expected, actual
             ),
             RunError::AudioOutputSampleCountTooSmall { expected, actual } => write!(
@@ -110,9 +130,24 @@ impl std::fmt::Display for RunError {
                 "audio output required at least {} samples but has {}",
                 expected, actual
             ),
-            RunError::PortMismatch { expected, actual } => {
-                write!(f, "expected ports {:?} but got {:?}", expected, actual)
+            RunError::AtomSequenceInputsSizeMismatch { expected, actual } => write!(
+                f,
+                "expected {} atom sequence inputs but found {}",
+                expected, actual
+            ),
+            RunError::AtomSequenceOutputsSizeMismatch { expected, actual } => write!(
+                f,
+                "expected {} atom sequence outputs but found {}",
+                expected, actual
+            ),
+            RunError::CVInputsSizeMismatch { expected, actual } => {
+                write!(f, "expected {} cv inputs but found {}", expected, actual)
             }
+            RunError::CVOutputsSizeMismatch { expected, actual } => write!(
+                f,
+                "cv output required at least {} samples but has {}",
+                expected, actual
+            ),
         }
     }
 }
