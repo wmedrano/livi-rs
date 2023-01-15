@@ -45,6 +45,11 @@ impl Plugin {
         }
     }
 
+    /// Get the underlying `lilv::plugin::Plugin`.
+    pub fn raw(&self) -> &lilv::plugin::Plugin {
+        &self.inner
+    }
+
     /// A unique identifier for the plugin.
     #[must_use]
     pub fn uri(&self) -> String {
@@ -377,6 +382,16 @@ impl Instance {
         }
 
         Ok(())
+    }
+
+    /// Get the underlying `lilv::instance::ActiveInstance`.
+    pub fn raw(&self) -> &lilv::instance::ActiveInstance {
+        &self.inner
+    }
+
+    /// Get the underlying `lilv::instance::ActiveInstance`.
+    pub fn raw_mut(&self) -> &mut lilv::instance::ActiveInstance {
+        &mut self.inner
     }
 
     /// Get the value of the control port at `index`. If `index` is not a valid
