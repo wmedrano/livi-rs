@@ -15,12 +15,12 @@ impl Class {
     }
 }
 
-// Returns the class and all its parents.
+/// Returns the class and all its parents.
 pub fn class_with_parents(
     raw_class: &lilv::plugin::Class,
     class_to_parent: &HashMap<Class, Arc<Class>>,
 ) -> Vec<String> {
-    let mut class = Class::from_raw(&raw_class);
+    let mut class = Class::from_raw(raw_class);
     let mut ret = vec![class.name.clone()];
     while let Some(parent) = class_to_parent.get(&class) {
         class = parent.as_ref().clone();

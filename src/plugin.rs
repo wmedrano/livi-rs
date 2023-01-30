@@ -76,7 +76,7 @@ impl Plugin {
 
     /// Returns true if the plugin is an instrument plugin.
     pub fn is_instrument(&self) -> bool {
-        self.classes().find(|c| *c == "Instrument Plugin").is_some()
+        self.classes().any(|c| c == "Instrument Plugin")
     }
 
     /// Create a new instance of the plugin.
