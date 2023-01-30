@@ -21,10 +21,15 @@ pub struct Plugin {
     pub(crate) inner: lilv::plugin::Plugin,
     pub(crate) common_uris: Arc<CommonUris>,
     port_counts: PortCounts,
+    classes: Vec<String>,
 }
 
 impl Plugin {
-    pub(crate) fn from_raw(plugin: lilv::plugin::Plugin, common_uris: Arc<CommonUris>) -> Plugin {
+    pub(crate) fn from_raw(
+        plugin: lilv::plugin::Plugin,
+        common_uris: Arc<CommonUris>,
+        classes: Vec<String>,
+    ) -> Plugin {
         let mut port_counts = PortCounts::default();
         for port in iter_ports_impl(&plugin, &common_uris) {
             match port.port_type {
@@ -42,6 +47,7 @@ impl Plugin {
             inner: plugin,
             common_uris,
             port_counts,
+            classes,
         }
     }
 
@@ -60,6 +66,17 @@ impl Plugin {
     #[must_use]
     pub fn name(&self) -> String {
         self.inner.name().as_str().unwrap_or("BAD_NAME").to_string()
+    }
+
+    /// Returns the classes of the plugin. For example: "Instrument Plugin" or
+    /// "Delay Plugin".
+    pub fn classes(&self) -> impl ExactSizeIterator + Iterator<Item = &str> {
+        self.classes.iter().map(|s| s.as_str())
+    }
+
+    /// Returns true if the plugin is an instrument plugin.
+    pub fn is_instrument(&self) -> bool {
+        self.classes().any(|c| c == "Instrument Plugin")
     }
 
     /// Create a new instance of the plugin.
@@ -547,6 +564,164 @@ fn node_to_value(maybe_node: &Option<lilv::node::Node>) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Port, PortCounts, PortIndex, PortType};
+
+    #[test]
+    fn test_metadata() {
+        let world = crate::World::new();
+        let plugin = world
+            .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
+            .unwrap();
+        assert_eq!(plugin.uri(), "http://drobilla.net/plugins/mda/EPiano");
+        assert_eq!(plugin.name(), "MDA ePiano");
+        assert_eq!(
+            plugin.classes,
+            vec![
+                "Instrument Plugin".to_string(),
+                "Generator Plugin".to_string(),
+                "Plugin".to_string()
+            ]
+        );
+        assert!(plugin.is_instrument());
+        assert_eq!(
+            *plugin.port_counts(),
+            PortCounts {
+                control_inputs: 12,
+                control_outputs: 0,
+                audio_inputs: 0,
+                audio_outputs: 2,
+                atom_sequence_inputs: 1,
+                atom_sequence_outputs: 0,
+                cv_inputs: 0,
+                cv_outputs: 0
+            }
+        );
+        assert_eq!(
+            plugin.ports().collect::<Vec<_>>(),
+            vec![
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Envelope Decay".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(0)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Envelope Release".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(1)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Hardness".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(2)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Treble Boost".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(3)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Modulation".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(4)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "LFO Rate".to_string(),
+                    default_value: 0.65,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(5)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Velocity Sense".to_string(),
+                    default_value: 0.25,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(6)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Stereo Width".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(7)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Polyphonic".to_string(),
+                    default_value: 1.0,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(8)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Fine Tuning".to_string(),
+                    default_value: 0.5,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(9)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Random Tuning".to_string(),
+                    default_value: 0.146,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(10)
+                },
+                Port {
+                    port_type: PortType::ControlInput,
+                    name: "Overdrive".to_string(),
+                    default_value: 0.0,
+                    min_value: Some(0.0),
+                    max_value: Some(1.0),
+                    index: PortIndex(11)
+                },
+                Port {
+                    port_type: PortType::AudioOutput,
+                    name: "Left Out".to_string(),
+                    default_value: 0.0,
+                    min_value: None,
+                    max_value: None,
+                    index: PortIndex(12)
+                },
+                Port {
+                    port_type: PortType::AudioOutput,
+                    name: "Right Out".to_string(),
+                    default_value: 0.0,
+                    min_value: None,
+                    max_value: None,
+                    index: PortIndex(13)
+                },
+                Port {
+                    port_type: PortType::AtomSequenceInput,
+                    name: "Event In".to_string(),
+                    default_value: 0.0,
+                    min_value: None,
+                    max_value: None,
+                    index: PortIndex(14)
+                },
+            ]
+        );
+    }
 
     #[test]
     fn output_buffer_too_small_produces_error() {

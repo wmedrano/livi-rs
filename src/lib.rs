@@ -47,6 +47,7 @@ pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortInde
 /// The underlying `lilv` library.
 pub use lilv;
 
+mod class_utils;
 /// Contains all the error types for the `livi` crate.
 pub mod error;
 /// Contains utility for dealing with `LV2` events.
@@ -79,10 +80,14 @@ impl World {
         let uri = world.new_uri(bundle_uri);
         world.load_bundle(&uri);
         let common_uris = Arc::new(CommonUris::new(&world));
+        let class_to_parent = class_utils::make_class_to_parent_map(&world);
         let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
-            .map(|p| Plugin::from_raw(p, common_uris.clone()))
+            .map(|p| {
+                let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
+                Plugin::from_raw(p, common_uris.clone(), classes)
+            })
             .collect();
 
         World {
@@ -110,6 +115,7 @@ impl World {
             "Creating World with supported features {:?}",
             supported_features
         );
+        let class_to_parent = class_utils::make_class_to_parent_map(&world);
         let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
@@ -171,7 +177,10 @@ impl World {
                 }
                 true
             })
-            .map(|p| Plugin::from_raw(p, common_uris.clone()))
+            .map(|p| {
+                let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
+                Plugin::from_raw(p, common_uris.clone(), classes)
+    })
             .filter(|p| {
                 let keep = predicate(p);
                 if !keep {

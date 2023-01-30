@@ -64,7 +64,7 @@ pub enum PortType {
 pub struct PortIndex(pub usize);
 
 /// A port represents a connection (either input or output) to a plugin.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Port {
     /// The type of port.
     pub port_type: PortType,
