@@ -16,11 +16,11 @@ fn main() {
     let world = livi::World::new();
     let plugin = world.plugin_by_uri(&config.plugin_uri);
     match plugin {
-        Some(plugin) => println!("{:#?}", plugin),
+        Some(plugin) => println!("{plugin:#?}"),
         None => {
             error!("Could not find --plugin-uri {:?}", &config.plugin_uri);
             let plugin_uris = world.iter_plugins().map(|p| p.uri()).collect::<Vec<_>>();
-            println!("Plugins: {:?}", plugin_uris);
+            println!("Plugins: {plugin_uris:?}");
         }
     }
 }
