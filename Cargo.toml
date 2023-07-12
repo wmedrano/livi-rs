@@ -8,7 +8,7 @@ license = "MIT"
 name = "livi"
 readme = "README.md"
 repository = "https://github.com/wmedrano/livi-rs"
-version = "0.7.2"
+version = "0.7.3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,5 +24,5 @@ env_logger = "0.10"
 jack = {version = "0.11"}
 lazy_static = "1.4"
 structopt = "0.3"
-tempfile = "3.3.0"
-wav = "1.0.0"
+tempfile = "3.6"
+wav = "1.0"
