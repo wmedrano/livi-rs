@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use crate::features::Features;
-use crate::port::Controls;
+use crate::port::{ControlPort, Controls};
 use crate::{
     error::{InstantiateError, RunError},
     event::LV2AtomSequence,
@@ -421,6 +421,16 @@ impl Instance {
     /// control port index, then `None` is returned.
     pub fn control_input(&self, index: PortIndex) -> Option<f32> {
         self.control_inputs.get(index)
+    }
+
+    /// Iterate through all control input ports.
+    pub fn iter_control_inputs(&self) -> impl Iterator<Item = &'_ ControlPort> {
+        self.control_inputs.iter_ports()
+    }
+
+    /// Iterate through all control output ports.
+    pub fn iter_control_outputs(&self) -> impl Iterator<Item = &'_ ControlPort> {
+        self.control_outputs.iter_ports()
     }
 
     /// Set the value of the control port at `index`. If `index` is not a valid

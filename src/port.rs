@@ -347,18 +347,18 @@ pub struct PortCounts {
 }
 
 #[derive(Debug)]
-struct DetailedPortValues {
-    port_index: PortIndex,
-    value: f32,
-    minimum: f32,
-    maximum: f32,
+pub struct ControlPort {
+    pub port_index: PortIndex,
+    pub value: f32,
+    pub minimum: f32,
+    pub maximum: f32,
 }
 
 /// Controls holds the values of control ports. These are also known as
 /// parameters.
 #[derive(Debug)]
 pub(crate) struct Controls {
-    controls: Vec<DetailedPortValues>,
+    controls: Vec<ControlPort>,
 }
 
 impl Controls {
@@ -367,8 +367,8 @@ impl Controls {
     where
         I: Iterator<Item = Port>,
     {
-        let mut controls: Vec<DetailedPortValues> = ports
-            .map(|p| DetailedPortValues {
+        let mut controls: Vec<ControlPort> = ports
+            .map(|p| ControlPort {
                 port_index: p.index,
                 value: p.default_value,
                 minimum: p.min_value.unwrap_or(std::f32::NEG_INFINITY),
@@ -378,6 +378,11 @@ impl Controls {
         controls.sort_by(|a, b| a.port_index.cmp(&b.port_index));
         controls.dedup_by_key(|p| p.port_index);
         Controls { controls }
+    }
+
+    /// Iterate through all the ports.
+    pub fn iter_ports(&self) -> impl Iterator<Item = &'_ ControlPort> {
+        self.controls.iter()
     }
 
     /// Get the value of the control at the given index or `None` if it does not
