@@ -153,6 +153,7 @@ impl World {
                             && class != common_uris.control_port_uri
                             && class != common_uris.atom_port_uri
                             && class != common_uris.cv_port_uri
+                            && class != common_uris.mod_cv_port_uri
                         {
                             error!("Port class {:?} is not supported.", class);
                             return false;
@@ -240,6 +241,7 @@ struct CommonUris {
     audio_port_uri: lilv::node::Node,
     atom_port_uri: lilv::node::Node,
     cv_port_uri: lilv::node::Node,
+    mod_cv_port_uri: lilv::node::Node,
     worker_schedule_feature_uri: lilv::node::Node,
 }
 
@@ -252,6 +254,7 @@ impl CommonUris {
             audio_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#AudioPort"),
             atom_port_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#AtomPort"),
             cv_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#CVPort"),
+            mod_cv_port_uri: world.new_uri("http://moddevices.com/ns/mod#CVPort"),
             worker_schedule_feature_uri: world.new_uri("http://lv2plug.in/ns/ext/worker#schedule"),
         }
     }
