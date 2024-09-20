@@ -548,6 +548,12 @@ fn iter_ports_impl<'a>(
                 .as_str()
                 .unwrap_or("BAD_NAME")
                 .to_string(),
+            symbol: p
+                .symbol()
+                .expect("port has no symbol")
+                .as_str()
+                .unwrap_or("BAD_SYMBOL")
+                .to_string(),
             default_value: node_to_value(&range.default),
             min_value: range.minimum.map(|n| node_to_value(&Some(n))),
             max_value: range.maximum.map(|n| node_to_value(&Some(n))),
