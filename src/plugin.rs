@@ -618,6 +618,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Envelope Decay".to_string(),
+                    symbol: "env_decay".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -626,6 +627,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Envelope Release".to_string(),
+                    symbol: "env_release".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -634,6 +636,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Hardness".to_string(),
+                    symbol: "hardness".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -642,6 +645,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Treble Boost".to_string(),
+                    symbol: "treble_boost".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -650,6 +654,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Modulation".to_string(),
+                    symbol: "modulation".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -658,6 +663,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "LFO Rate".to_string(),
+                    symbol: "lfo_rate".to_string(),
                     default_value: 0.65,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -666,6 +672,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Velocity Sense".to_string(),
+                    symbol: "vel_sense".to_string(),
                     default_value: 0.25,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -674,6 +681,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Stereo Width".to_string(),
+                    symbol: "stereo_width".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -682,6 +690,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Polyphonic".to_string(),
+                    symbol: "polyphonic".to_string(),
                     default_value: 1.0,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -690,6 +699,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Fine Tuning".to_string(),
+                    symbol: "fine_tuning".to_string(),
                     default_value: 0.5,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -698,6 +708,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Random Tuning".to_string(),
+                    symbol: "random_tuning".to_string(),
                     default_value: 0.146,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -706,6 +717,7 @@ mod tests {
                 Port {
                     port_type: PortType::ControlInput,
                     name: "Overdrive".to_string(),
+                    symbol: "overdrive".to_string(),
                     default_value: 0.0,
                     min_value: Some(0.0),
                     max_value: Some(1.0),
@@ -714,6 +726,7 @@ mod tests {
                 Port {
                     port_type: PortType::AudioOutput,
                     name: "Left Out".to_string(),
+                    symbol: "left_out".to_string(),
                     default_value: 0.0,
                     min_value: None,
                     max_value: None,
@@ -722,6 +735,7 @@ mod tests {
                 Port {
                     port_type: PortType::AudioOutput,
                     name: "Right Out".to_string(),
+                    symbol: "right_out".to_string(),
                     default_value: 0.0,
                     min_value: None,
                     max_value: None,
@@ -730,6 +744,7 @@ mod tests {
                 Port {
                     port_type: PortType::AtomSequenceInput,
                     name: "Event In".to_string(),
+                    symbol: "event_in".to_string(),
                     default_value: 0.0,
                     min_value: None,
                     max_value: None,
