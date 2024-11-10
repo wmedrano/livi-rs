@@ -374,8 +374,8 @@ impl Controls {
             .map(|p| ControlPort {
                 port_index: p.index,
                 value: p.default_value,
-                minimum: p.min_value.unwrap_or(std::f32::NEG_INFINITY),
-                maximum: p.max_value.unwrap_or(std::f32::INFINITY),
+                minimum: p.min_value.unwrap_or(f32::NEG_INFINITY),
+                maximum: p.max_value.unwrap_or(f32::INFINITY),
             })
             .collect();
         controls.sort_by(|a, b| a.port_index.cmp(&b.port_index));
@@ -404,7 +404,7 @@ impl Controls {
     /// clamped to the minimum and maximum bounds and returned.
     pub fn set(&mut self, port: PortIndex, value: f32) -> Option<f32> {
         let idx = self.port_index_to_index_in_controls(port)?;
-        let mut p = self.controls.get_mut(idx)?;
+        let p = self.controls.get_mut(idx)?;
         let normalized_value = value.clamp(p.minimum, p.maximum);
         p.value = normalized_value;
         Some(normalized_value)

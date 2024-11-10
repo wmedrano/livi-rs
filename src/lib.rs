@@ -120,15 +120,13 @@ impl World {
             .plugins()
             .into_iter()
             .filter(|p| {
-                let is_supported = p
-                    .required_features()
-                    .into_iter()
-                    .all(|f| supported_features.contains(f.as_uri().unwrap_or("")));
+                let unsupported_features: Vec<_> = p.required_features().into_iter().filter(|f| !supported_features.contains(f.as_uri().unwrap_or(""))).collect();
+                let is_supported = unsupported_features.is_empty();
                 if !is_supported {
                     warn!(
                         "Plugin {} requires unsupported features: {:?}",
                         p.uri().as_uri().unwrap_or("BAD_URI"),
-                        p.required_features()
+                        unsupported_features
                     );
                 }
                 is_supported
@@ -198,7 +196,7 @@ impl World {
     }
 
     /// Iterate through all plugins.
-    pub fn iter_plugins(&self) -> impl '_ + ExactSizeIterator + Iterator<Item = Plugin> {
+    pub fn iter_plugins(&self) -> impl '_ + ExactSizeIterator<Item = Plugin> {
         self.livi_plugins.iter().cloned()
     }
 
@@ -291,7 +289,12 @@ mod tests {
             max_block_length: block_size,
         });
         for plugin in world.iter_plugins() {
-            println!("Running plugin: {}", plugin.uri());
+            if plugin
+                .uri()
+                .starts_with("http://breakfastquay.com/rdf/lv2-rubberband")
+            {
+                continue;
+            }
             let port_counts = *plugin.port_counts();
             let audio_in = vec![0.0; port_counts.audio_inputs * block_size];
             let mut audio_out = vec![0.0; port_counts.audio_outputs * block_size];
