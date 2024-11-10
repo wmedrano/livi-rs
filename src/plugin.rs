@@ -70,7 +70,7 @@ impl Plugin {
 
     /// Returns the classes of the plugin. For example: "Instrument Plugin" or
     /// "Delay Plugin".
-    pub fn classes(&self) -> impl ExactSizeIterator + Iterator<Item = &str> {
+    pub fn classes(&self) -> impl ExactSizeIterator<Item = &str> {
         self.classes.iter().map(|s| s.as_str())
     }
 
