@@ -72,6 +72,9 @@ pub struct Port {
     /// The name of the port.
     pub name: String,
 
+    /// The symbol of the port.
+    pub symbol: String,
+
     /// The default value for the port if it is a `ControlInputs`.
     pub default_value: f32,
 
