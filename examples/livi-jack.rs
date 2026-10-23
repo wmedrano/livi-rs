@@ -88,22 +88,22 @@ impl Processor {
         let audio_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
             .ports_with_type(livi::PortType::AudioInput)
             .inspect(|p| info!("Initializing audio input {}.", p.name))
-            .map(|p| client.register_port(&p.name, jack::AudioIn).unwrap())
+            .map(|p| client.register_port(&p.name, jack::AudioIn::default()).unwrap())
             .collect();
         let audio_outputs: Vec<jack::Port<jack::AudioOut>> = plugin
             .ports_with_type(livi::PortType::AudioOutput)
             .inspect(|p| info!("Initializing audio output {}.", p.name))
-            .map(|p| client.register_port(&p.name, jack::AudioOut).unwrap())
+            .map(|p| client.register_port(&p.name, jack::AudioOut::default()).unwrap())
             .collect();
         const EVENT_BUFFER_SIZE: usize = 262_144; // ~262KiB
         let event_inputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceInput)
-            .map(|p| client.register_port(&p.name, jack::MidiIn).unwrap())
+            .map(|p| client.register_port(&p.name, jack::MidiIn::default()).unwrap())
             .map(|p| (p, LV2AtomSequence::new(&features, EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let event_outputs = plugin
             .ports_with_type(livi::PortType::AtomSequenceOutput)
-            .map(|p| client.register_port(&p.name, jack::MidiOut).unwrap())
+            .map(|p| client.register_port(&p.name, jack::MidiOut::default()).unwrap())
             .map(|p| (p, LV2AtomSequence::new(&features, EVENT_BUFFER_SIZE)))
             .collect::<Vec<_>>();
         let cv_inputs: Vec<jack::Port<jack::AudioIn>> = plugin
@@ -111,7 +111,7 @@ impl Processor {
             .inspect(|p| info!("Initializing cv input {}.", p.name))
             .map(|p| {
                 client
-                    .register_port(&format!("CV: {}", p.name), jack::AudioIn)
+                    .register_port(&format!("CV: {}", p.name), jack::AudioIn::default())
                     .unwrap()
             })
             .collect();
@@ -120,7 +120,7 @@ impl Processor {
             .inspect(|p| info!("Initializing cv output {}.", p.name))
             .map(|p| {
                 client
-                    .register_port(&format!("CV: {}", p.name), jack::AudioOut)
+                    .register_port(&format!("CV: {}", p.name), jack::AudioOut::default())
                     .unwrap()
             })
             .collect();
@@ -243,10 +243,10 @@ fn copy_atom_sequence_to_midi_out(
 ) {
     let mut writer = dst.writer(ps);
     for event in src.iter() {
-        if event.event.body.mytype != midi_urid {
+        if event.event.body.type_ != midi_urid {
             warn!(
                 "Found non-midi event with URID: {}",
-                event.event.body.mytype
+                event.event.body.type_
             );
             continue;
         }
