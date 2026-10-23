@@ -40,7 +40,7 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
                 time_in_frames,
                 body: LV2Atom {
                     size: u32::try_from(data.len()).expect("Size exceeds u32 capacity."),
-                    mytype: my_type,
+                    type_: my_type,
                 },
             },
             _data: buffer,
@@ -58,7 +58,7 @@ impl<const MAX_SIZE: usize> LV2AtomEventBuilder<MAX_SIZE> {
                 time_in_frames,
                 body: LV2Atom {
                     size: MAX_SIZE as u32,
-                    mytype: my_type,
+                    type_: my_type,
                 },
             },
             _data: data,
@@ -133,7 +133,7 @@ impl LV2AtomSequence {
     pub fn clear(&mut self) {
         unsafe {
             let seq = self.as_mut_ptr();
-            (*seq).atom.mytype = self.atom_sequence_urid;
+            (*seq).atom.type_ = self.atom_sequence_urid;
             (*seq).atom.size = std::mem::size_of::<lv2_raw::LV2AtomSequenceBody>() as u32;
         }
     }
@@ -143,7 +143,7 @@ impl LV2AtomSequence {
         let capacity = self.capacity() as u32;
         unsafe {
             let seq = self.as_mut_ptr();
-            (*seq).atom.mytype = self.atom_chunk_urid;
+            (*seq).atom.type_ = self.atom_chunk_urid;
             (*seq).atom.size = capacity;
         }
     }
@@ -231,7 +231,7 @@ impl LV2AtomSequence {
             let seq = self.as_ptr();
             // Only sequences can be iterated over. Chunks are expected to be
             // passed to plugins and mutated into sequences.
-            if (*seq).atom.mytype != self.atom_sequence_urid {
+            if (*seq).atom.type_ != self.atom_sequence_urid {
                 return LV2AtomSequenceIter {
                     _sequence: PhantomData,
                     body: std::ptr::null(),
@@ -315,7 +315,7 @@ impl<'a> Debug for LV2AtomEventWithData<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LV2AtomEventWithData")
             .field("time_in_frames", &self.event.time_in_frames)
-            .field("my_type", &self.event.body.mytype)
+            .field("my_type", &self.event.body.type_)
             .field("size", &self.event.body.size)
             .field("data", &self.data)
             .finish()
