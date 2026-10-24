@@ -1,6 +1,6 @@
 use crate::WorkerManager;
 use lv2_raw::LV2Feature;
-use lv2_sys::LV2_BUF_SIZE__boundedBlockLength;
+use lv2_sys::{LV2_BUF_SIZE__boundedBlockLength, LV2_STATE__loadDefaultState};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -53,6 +53,10 @@ impl FeaturesBuilder {
                 uri: LV2_BUF_SIZE__boundedBlockLength.as_ptr().cast(),
                 data: std::ptr::null_mut(),
             },
+            load_default_state: LV2Feature {
+                uri: LV2_STATE__loadDefaultState.as_ptr().cast(),
+                data: std::ptr::null_mut(),
+            },
             worker_manager,
             _worker_thread: worker_thread,
             keep_worker_thread_alive,
@@ -82,6 +86,7 @@ pub struct Features {
     urid_map: Pin<Box<urid_map::UridMap>>,
     options: options::Options,
     bounded_block_length: LV2Feature,
+    load_default_state: LV2Feature,
     min_block_length: usize,
     max_block_length: usize,
     worker_manager: Arc<WorkerManager>,
@@ -101,6 +106,7 @@ impl Features {
             "http://lv2plug.in/ns/ext/options#options",
             "http://lv2plug.in/ns/ext/buf-size#boundedBlockLength",
             "http://lv2plug.in/ns/ext/worker#schedule",
+            "http://lv2plug.in/ns/ext/state#loadDefaultState",
         ])
     }
 
@@ -113,7 +119,29 @@ impl Features {
             .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
             .chain(std::iter::once(self.options.as_feature()))
             .chain(std::iter::once(&self.bounded_block_length))
+            .chain(std::iter::once(&self.load_default_state))
             .chain(std::iter::once(worker_feature))
+    }
+
+    /// Iterate over the LV2 features that are passed to state operations.
+    pub(crate) fn iter_state_features(&self) -> impl Iterator<Item = &'_ LV2Feature> {
+        std::iter::once(self.urid_map.as_urid_map_feature())
+            .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
+    }
+
+    /// A new `LV2UridMap` that is backed by the features urid map.
+    pub(crate) fn lv2_urid_map(&self) -> lv2_raw::LV2UridMap {
+        self.urid_map.lv2_urid_map()
+    }
+
+    /// A new `LV2_URID_Unmap` that is backed by the features urid map.
+    pub(crate) fn lv2_urid_unmap(&self) -> lv2_sys::LV2_URID_Unmap {
+        self.urid_map.lv2_urid_unmap()
+    }
+
+    /// The urid for `atom:Float`.
+    pub(crate) fn atom_float_urid(&self) -> lv2_raw::LV2Urid {
+        self.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Float).unwrap())
     }
 
     /// The minimum allowed block length.
@@ -157,6 +185,7 @@ impl std::fmt::Debug for Features {
             .field("urid_map", &self.urid_map)
             .field("options", &self.options)
             .field("bounded_block_length", &"__uri__")
+            .field("load_default_state", &"__uri__")
             .field("min_block_length", &self.min_block_length)
             .field("max_block_length", &self.max_block_length)
             .field("worker_manager", &self.worker_manager)

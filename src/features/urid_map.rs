@@ -104,6 +104,22 @@ impl UridMap {
         }
     }
 
+    /// Create a new `LV2UridMap` that shares the same underlying map.
+    pub fn lv2_urid_map(&self) -> lv2_raw::LV2UridMap {
+        lv2_raw::LV2UridMap {
+            handle: self.map_data.handle,
+            map: self.map_data.map,
+        }
+    }
+
+    /// Create a new `LV2_URID_Unmap` that shares the same underlying map.
+    pub fn lv2_urid_unmap(&self) -> lv2_sys::LV2_URID_Unmap {
+        lv2_sys::LV2_URID_Unmap {
+            handle: self.unmap_data.handle,
+            unmap: self.unmap_data.unmap,
+        }
+    }
+
     pub fn as_urid_map_feature(&self) -> &LV2Feature {
         &self.urid_map_feature
     }
