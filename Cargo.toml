@@ -13,7 +13,7 @@ version = "0.8.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lilv = "0.3"
+lilv = "0.3.1"
 log = "0.4"
 lv2-sys = "2"
 lv2_raw = "0.3"
