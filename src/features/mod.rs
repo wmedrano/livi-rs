@@ -83,7 +83,7 @@ impl FeaturesBuilder {
 
 /// `Features` are used to provide functionality to plugins.
 pub struct Features {
-    urid_map: Pin<Box<urid_map::UridMap>>,
+    pub(crate) urid_map: Pin<Box<urid_map::UridMap>>,
     options: options::Options,
     bounded_block_length: LV2Feature,
     load_default_state: LV2Feature,
@@ -121,27 +121,6 @@ impl Features {
             .chain(std::iter::once(&self.bounded_block_length))
             .chain(std::iter::once(&self.load_default_state))
             .chain(std::iter::once(worker_feature))
-    }
-
-    /// Iterate over the LV2 features that are passed to state operations.
-    pub(crate) fn iter_state_features(&self) -> impl Iterator<Item = &'_ LV2Feature> {
-        std::iter::once(self.urid_map.as_urid_map_feature())
-            .chain(std::iter::once(self.urid_map.as_urid_unmap_feature()))
-    }
-
-    /// A new `LV2UridMap` that is backed by the features urid map.
-    pub(crate) fn lv2_urid_map(&self) -> lv2_raw::LV2UridMap {
-        self.urid_map.lv2_urid_map()
-    }
-
-    /// A new `LV2_URID_Unmap` that is backed by the features urid map.
-    pub(crate) fn lv2_urid_unmap(&self) -> lv2_sys::LV2_URID_Unmap {
-        self.urid_map.lv2_urid_unmap()
-    }
-
-    /// The urid for `atom:Float`.
-    pub(crate) fn atom_float_urid(&self) -> lv2_raw::LV2Urid {
-        self.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Float).unwrap())
     }
 
     /// The minimum allowed block length.

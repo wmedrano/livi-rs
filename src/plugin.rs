@@ -1,5 +1,6 @@
 use std::boxed::Box;
 use std::collections::HashMap;
+use std::ffi::CStr;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -11,8 +12,9 @@ use crate::{
     event::LV2AtomSequence,
     features::worker,
     port::{DataType, IOType},
-    state::{PortValueGetter, PortValueSetter, State, state_flags},
+    state::{PortValueGetter, PortValueSetter, State, state_features, state_flags},
 };
+use log::warn;
 use lv2_raw::LV2Feature;
 use lv2_sys::LV2_Worker_Schedule;
 use ringbuf::HeapProd;
@@ -156,19 +158,25 @@ impl Plugin {
                 .inner
                 .has_feature(&self.common_uris.load_default_state_feature_uri)
             {
-                let mut map = features.lv2_urid_map();
-                if let Some(default_state) = self.world.new_state(&mut map, &self.inner.uri()) {
-                    let mut setter = PortValueSetter {
-                        controls: &mut control_inputs,
-                        symbols: &control_input_symbols,
-                        features: &features,
-                    };
-                    default_state.restore(
-                        &instance,
-                        Some(&mut setter),
-                        state_flags(),
-                        features.iter_state_features(),
-                    );
+                let mut map = features.urid_map.lv2_urid_map();
+                match self.world.new_state(&mut map, &self.inner.uri()) {
+                    None => warn!(
+                        "Plugin {} requires loadDefaultState but its default state could not be loaded.",
+                        self.uri()
+                    ),
+                    Some(default_state) => {
+                        let mut setter = PortValueSetter {
+                            controls: &mut control_inputs,
+                            symbols: &control_input_symbols,
+                            features: &features,
+                        };
+                        default_state.restore(
+                            &instance,
+                            Some(&mut setter),
+                            state_flags(),
+                            state_features(&features),
+                        );
+                    }
                 }
             }
 
@@ -208,7 +216,7 @@ impl Plugin {
                 _worker_schedule: worker_schedule,
                 _instance_to_worker_sender: instance_to_worker_sender,
                 is_alive,
-                _features: features,
+                features,
             })
         }
     }
@@ -284,7 +292,7 @@ pub struct Instance {
     _worker_schedule: Box<lv2_sys::LV2_Worker_Schedule>,
     _instance_to_worker_sender: Box<worker::WorkerMessageSender>,
     is_alive: Arc<Mutex<bool>>,
-    _features: Arc<Features>,
+    features: Arc<Features>,
 }
 
 unsafe impl Sync for Instance {}
@@ -492,11 +500,13 @@ impl Instance {
     /// # Errors
     /// Returns an error if the state could not be created.
     pub fn state(&self) -> Result<State, StateError> {
-        let mut map = self._features.lv2_urid_map();
+        let mut map = self.features.urid_map.lv2_urid_map();
         let mut getter = PortValueGetter {
             controls: &self.control_inputs,
             symbols: &self.control_input_symbols,
-            float_urid: self._features.atom_float_urid(),
+            float_urid: self
+                .features
+                .urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Float).unwrap()),
         };
         let inner = self
             .plugin
@@ -509,27 +519,36 @@ impl Instance {
                 None,
                 Some(&mut getter),
                 state_flags(),
-                self._features.iter_state_features(),
+                state_features(&self.features),
             )
             .ok_or(StateError::CreateFailed)?;
-        Ok(State::new(inner, self._features.clone()))
+        Ok(State::new(inner, self.features.clone()))
     }
 
     /// Restore the instance to `state`. This sets the values of the control
     /// input ports and restores any properties the plugin saves through the LV2
     /// State extension.
-    pub fn restore_state(&mut self, state: &State) {
+    ///
+    /// # Errors
+    /// Returns an error if `state` is for a different plugin.
+    pub fn restore_state(&mut self, state: &State) -> Result<(), StateError> {
+        let expected = self.plugin.uri().as_uri().unwrap_or_default().to_string();
+        let actual = state.plugin_uri();
+        if expected != actual {
+            return Err(StateError::PluginMismatch { expected, actual });
+        }
         let mut setter = PortValueSetter {
             controls: &mut self.control_inputs,
             symbols: &self.control_input_symbols,
-            features: &self._features,
+            features: &self.features,
         };
         state.raw().restore(
             self.inner.instance(),
             Some(&mut setter),
             state_flags(),
-            self._features.iter_state_features(),
+            state_features(&self.features),
         );
+        Ok(())
     }
 
     /// Get the number of ports for a specific type of port.
@@ -581,7 +600,7 @@ impl Debug for Instance {
             .field("_worker_schedule", &self._worker_schedule)
             .field("_instance_to_worker_sender", &"__ringbuf_sender__")
             .field("is_alive", &self.is_alive)
-            .field("_features", &self._features)
+            .field("features", &self.features)
             .finish()
     }
 }

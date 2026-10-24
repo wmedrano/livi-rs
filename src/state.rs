@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use lilv::state::{GetPortValue, SetPortValue, Value};
 use log::warn;
+use lv2_raw::LV2Feature;
 
 use crate::PortIndex;
 use crate::error::StateError;
@@ -17,6 +18,15 @@ pub(crate) fn state_flags() -> lv2_sys::LV2_State_Flags {
         lv2_sys::LV2_State_Flags::LV2_STATE_IS_POD.0
             | lv2_sys::LV2_State_Flags::LV2_STATE_IS_PORTABLE.0,
     )
+}
+
+/// The features passed to state operations.
+pub(crate) fn state_features(features: &Features) -> impl Iterator<Item = &LV2Feature> {
+    [
+        features.urid_map.as_urid_map_feature(),
+        features.urid_map.as_urid_unmap_feature(),
+    ]
+    .into_iter()
 }
 
 /// A snapshot of a plugin's state. This includes the values of the control
@@ -78,8 +88,8 @@ impl State {
     /// # Errors
     /// Returns an error if the state could not be serialized.
     pub fn to_string(&self, uri: &str) -> Result<String, StateError> {
-        let mut map = self.features.lv2_urid_map();
-        let mut unmap = self.features.lv2_urid_unmap();
+        let mut map = self.features.urid_map.lv2_urid_map();
+        let mut unmap = self.features.urid_map.lv2_urid_unmap();
         self.inner
             .to_string(&mut map, &mut unmap, uri, None)
             .ok_or(StateError::SerializeFailed)
@@ -93,8 +103,8 @@ impl State {
     /// Returns an error if the state could not be saved.
     pub fn save(&self, dir: &Path, filename: &str, uri: Option<&str>) -> Result<(), StateError> {
         let dir = dir.to_str().ok_or(StateError::InvalidPath)?;
-        let mut map = self.features.lv2_urid_map();
-        let mut unmap = self.features.lv2_urid_unmap();
+        let mut map = self.features.urid_map.lv2_urid_map();
+        let mut unmap = self.features.urid_map.lv2_urid_unmap();
         self.inner
             .save(&mut map, &mut unmap, uri, dir, filename)
             .map_err(StateError::Status)
@@ -193,6 +203,7 @@ impl SetPortValue for PortValueSetter<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::error::StateError;
     use crate::{FeaturesBuilder, Instance, PortIndex, World};
 
     const EG_AMP: &str = "http://lv2plug.in/plugins/eg-amp";
@@ -233,7 +244,7 @@ mod tests {
 
         let mut other = instantiate(&world, &features);
         assert_eq!(other.control_input(gain), Some(0.0));
-        other.restore_state(&loaded);
+        other.restore_state(&loaded).unwrap();
         assert_eq!(other.control_input(gain), Some(-12.0));
     }
 
@@ -257,7 +268,7 @@ mod tests {
             .unwrap();
         assert_eq!(loaded.label(), Some("loud"));
         let mut other = instantiate(&world, &features);
-        other.restore_state(&loaded);
+        other.restore_state(&loaded).unwrap();
         assert_eq!(other.control_input(gain), Some(6.0));
     }
 
@@ -270,7 +281,41 @@ mod tests {
         instance.set_control_input(gain, 3.0);
 
         let default_state = world.state_from_uri(&features, EG_AMP).unwrap();
-        instance.restore_state(&default_state);
+        instance.restore_state(&default_state).unwrap();
         assert_eq!(instance.control_input(gain), Some(0.0));
+    }
+
+    #[test]
+    fn state_from_string_with_invalid_state_fails() {
+        let world = World::new();
+        let features = world.build_features(FeaturesBuilder::default());
+        assert_eq!(
+            world
+                .state_from_string(&features, "not turtle")
+                .unwrap_err(),
+            StateError::LoadFailed
+        );
+    }
+
+    #[test]
+    fn restore_state_from_other_plugin_fails() {
+        let world = World::new();
+        let features = world.build_features(FeaturesBuilder::default());
+        let mut instance = instantiate(&world, &features);
+        let fifths = unsafe {
+            world
+                .plugin_by_uri("http://lv2plug.in/plugins/eg-fifths")
+                .expect("eg-fifths not found")
+                .instantiate(features.clone(), 44100.0)
+                .expect("could not instantiate eg-fifths")
+        };
+        let state = fifths.state().unwrap();
+        assert_eq!(
+            instance.restore_state(&state).unwrap_err(),
+            StateError::PluginMismatch {
+                expected: EG_AMP.to_string(),
+                actual: "http://lv2plug.in/plugins/eg-fifths".to_string(),
+            }
+        );
     }
 }

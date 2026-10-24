@@ -171,6 +171,7 @@ fn assert_not_silence(buffers: [Vec<f32>; 1]) {
 }
 
 #[test]
+#[ignore = "eg-sampler is no longer shipped with the LV2 example plugins"]
 fn test_sampler() {
     let cwd = std::env::current_dir().unwrap();
     let mut out_file = NamedTempFile::new_in(cwd).unwrap();

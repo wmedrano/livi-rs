@@ -59,10 +59,16 @@ pub enum RunError {
 }
 
 /// An error associated with plugin state.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateError {
     /// The state could not be created from the plugin instance.
     CreateFailed,
+
+    /// The state could not be loaded.
+    LoadFailed,
+
+    /// The state is for a different plugin than the instance.
+    PluginMismatch { expected: String, actual: String },
 
     /// The state could not be serialized.
     SerializeFailed,
@@ -162,6 +168,11 @@ impl std::fmt::Display for StateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StateError::CreateFailed => f.write_str("failed to create state from instance"),
+            StateError::LoadFailed => f.write_str("failed to load state"),
+            StateError::PluginMismatch { expected, actual } => write!(
+                f,
+                "state is for plugin {actual} but the instance is {expected}"
+            ),
             StateError::SerializeFailed => f.write_str("failed to serialize state"),
             StateError::InvalidPath => f.write_str("path is not valid UTF-8"),
             StateError::Status(status) => write!(f, "state operation failed with status {status}"),

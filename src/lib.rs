@@ -36,6 +36,7 @@
 //!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()));
 //! unsafe { instance.run(features.max_block_length(), ports).unwrap() };
 //! ```
+use error::StateError;
 use log::{debug, error, info, warn};
 use std::path::Path;
 use std::sync::Arc;
@@ -43,8 +44,8 @@ use std::sync::Arc;
 pub use features::worker::{Worker, WorkerManager};
 pub use features::{Features, FeaturesBuilder};
 pub use plugin::{Instance, Plugin};
-pub use state::State;
 pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
+pub use state::State;
 
 /// The underlying `lilv` library.
 pub use lilv;
@@ -223,37 +224,57 @@ impl World {
     }
 
     /// Load a state from a string, such as one produced by `State::to_string`.
-    /// Returns `None` if the state could not be loaded.
-    pub fn state_from_string(&self, features: &Arc<Features>, state: &str) -> Option<State> {
-        let mut map = features.lv2_urid_map();
-        let inner = self.world.new_state_from_string(&mut map, state)?;
-        Some(State::new(inner, features.clone()))
+    ///
+    /// # Errors
+    /// Returns an error if the state could not be loaded.
+    pub fn state_from_string(
+        &self,
+        features: &Arc<Features>,
+        state: &str,
+    ) -> Result<State, StateError> {
+        let mut map = features.urid_map.lv2_urid_map();
+        let inner = self
+            .world
+            .new_state_from_string(&mut map, state)
+            .ok_or(StateError::LoadFailed)?;
+        Ok(State::new(inner, features.clone()))
     }
 
     /// Load a state from a Turtle file, such as one produced by `State::save`.
     /// If `uri` is `None`, then the subject of the state is taken to be the
-    /// file itself. Returns `None` if the state could not be loaded.
+    /// file itself.
+    ///
+    /// # Errors
+    /// Returns an error if `path` is not valid UTF-8 or the state could not be
+    /// loaded.
     pub fn state_from_file(
         &self,
         features: &Arc<Features>,
         uri: Option<&str>,
         path: &Path,
-    ) -> Option<State> {
-        let mut map = features.lv2_urid_map();
+    ) -> Result<State, StateError> {
+        let path = path.to_str().ok_or(StateError::InvalidPath)?;
+        let mut map = features.urid_map.lv2_urid_map();
         let subject = uri.map(|uri| self.world.new_uri(uri));
         let inner = self
             .world
-            .new_state_from_file(&mut map, subject.as_ref(), path.to_str()?)?;
-        Some(State::new(inner, features.clone()))
+            .new_state_from_file(&mut map, subject.as_ref(), path)
+            .ok_or(StateError::LoadFailed)?;
+        Ok(State::new(inner, features.clone()))
     }
 
     /// Load a state, such as a preset, that has been loaded into the world. If
     /// `uri` is a plugin URI, then the default state of the plugin is loaded.
-    /// Returns `None` if the state could not be loaded.
-    pub fn state_from_uri(&self, features: &Arc<Features>, uri: &str) -> Option<State> {
-        let mut map = features.lv2_urid_map();
-        let inner = self.world.new_state(&mut map, &self.world.new_uri(uri))?;
-        Some(State::new(inner, features.clone()))
+    ///
+    /// # Errors
+    /// Returns an error if the state could not be loaded.
+    pub fn state_from_uri(&self, features: &Arc<Features>, uri: &str) -> Result<State, StateError> {
+        let mut map = features.urid_map.lv2_urid_map();
+        let inner = self
+            .world
+            .new_state(&mut map, &self.world.new_uri(uri))
+            .ok_or(StateError::LoadFailed)?;
+        Ok(State::new(inner, features.clone()))
     }
 }
 
