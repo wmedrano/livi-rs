@@ -38,27 +38,25 @@ fn publish_message(
     if size > MAX_MESSAGE_SIZE {
         return lv2_sys::LV2_Worker_Status_LV2_WORKER_ERR_NO_SPACE;
     }
-    let mut body = unsafe { slice::from_raw_parts(body, size) };
+    let body = unsafe { slice::from_raw_parts(body, size) };
     let total_size = size_of::<usize>() + size;
-    if sender.vacant_len() < total_size {
-        return lv2_sys::LV2_Worker_Status_LV2_WORKER_ERR_NO_SPACE;
-    }
     let size_as_bytes = size.to_be_bytes();
-    sender.push_slice(&size_as_bytes);
-    let result = sender.read_from(&mut body, Some(size));
-    match result {
-        Some(_) => lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS,
-        None => lv2_sys::LV2_Worker_Status_LV2_WORKER_ERR_UNKNOWN,
-    }
+    let send_result = if sender.vacant_len() < total_size {
+        return lv2_sys::LV2_Worker_Status_LV2_WORKER_ERR_NO_SPACE;
+    } else {
+        sender.push_iter(size_as_bytes.iter().chain(body.iter()).copied())
+    };
+    // PANIC OK: We ensure capacity above so this should never panic.
+    assert_eq!(send_result, total_size);
+    lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
 }
 
 fn pop_message(receiver: &mut WorkerMessageReceiver) -> WorkerMessage {
     let mut size_as_bytes = [0; size_of::<usize>()];
-    receiver.pop_slice(&mut size_as_bytes);
+    assert_eq!(receiver.pop_slice(&mut size_as_bytes), size_as_bytes.len());
     let size = usize::from_be_bytes(size_as_bytes);
     let mut body: MessageBody = [0; MAX_MESSAGE_SIZE];
-    let mut slice = &mut body[..];
-    let _ = receiver.write_into(&mut slice, Some(size)).unwrap();
+    assert_eq!(receiver.pop_slice(&mut body[..size]), size);
 
     WorkerMessage { size, body }
 }
@@ -275,6 +273,28 @@ impl WorkerManager {
 mod tests {
     use super::*;
     use std::str;
+
+    #[test]
+    fn worker_request_and_response_wraparound() {
+        for callback in [schedule_work as extern "C" fn(_, _, _) -> _, worker_respond] {
+            let (mut sender, mut receiver) = instantiate_queue();
+            for round in 0..12u8 {
+                let data = [round + 1; MAX_MESSAGE_SIZE];
+                assert_eq!(
+                    callback(
+                        (&mut sender as *mut WorkerMessageSender).cast(),
+                        data.len() as u32,
+                        data.as_ptr().cast(),
+                    ),
+                    lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
+                );
+                let message = pop_message(&mut receiver);
+                assert_eq!(message.size, data.len());
+                assert!(message.body == data, "corrupted message {round}");
+                assert_eq!(receiver.occupied_len(), 0);
+            }
+        }
+    }
 
     #[test]
     fn test_send() {

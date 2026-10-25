@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Fix worker race condition by committing header and body bytes in single
+  transaction.
 - Use padded size to check `LV2AtomSequence::push`. Previously, we may have
   overestimated the capacity.
 - Reject CV input and output buffers shorter than the requested frame count before
