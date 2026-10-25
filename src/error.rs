@@ -1,5 +1,6 @@
 /// An error with plugin instantiation.
 #[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
 pub enum InstantiateError {
     /// An error ocurred, but it is not known why.
     UnknownError,
@@ -7,6 +8,7 @@ pub enum InstantiateError {
 
 /// An error that occurs when dealing with atom events.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EventError {
     /// The size of the data is too large than what is supported for the event.
     DataTooLarge {
@@ -20,6 +22,7 @@ pub enum EventError {
 
 /// An error associated with running a plugin.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RunError {
     /// The sample count is smaller than the minimum that is allowed. The
     /// supported size is set when initializing the `livi::World` object.
@@ -66,6 +69,7 @@ pub enum RunError {
 
 /// An error associated with plugin state.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StateError {
     /// The state could not be created from the plugin instance.
     CreateFailed,
@@ -196,6 +200,7 @@ impl std::fmt::Display for StateError {
 
 /// Invalid bounds for the LV2 block length options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FeatureError {
     /// Minimum block length exceeds maximum block length.
     ReversedBounds { min: usize, max: usize },

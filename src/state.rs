@@ -225,7 +225,9 @@ mod tests {
     #[test]
     fn state_round_trips_through_string() {
         let world = World::new();
-        let features = world.build_features(FeaturesBuilder::default());
+        let features = world
+            .try_build_features(FeaturesBuilder::default())
+            .expect("invalid feature block bounds");
         let mut instance = instantiate(&world, &features);
         let gain = gain_index(&instance);
         assert_eq!(instance.set_control_input(gain, -12.0), Some(-12.0));
@@ -251,7 +253,9 @@ mod tests {
     #[test]
     fn state_round_trips_through_file() {
         let world = World::new();
-        let features = world.build_features(FeaturesBuilder::default());
+        let features = world
+            .try_build_features(FeaturesBuilder::default())
+            .expect("invalid feature block bounds");
         let mut instance = instantiate(&world, &features);
         let gain = gain_index(&instance);
         instance.set_control_input(gain, 6.0);
@@ -275,7 +279,9 @@ mod tests {
     #[test]
     fn state_from_uri_loads_plugin_default_state() {
         let world = World::new();
-        let features = world.build_features(FeaturesBuilder::default());
+        let features = world
+            .try_build_features(FeaturesBuilder::default())
+            .expect("invalid feature block bounds");
         let mut instance = instantiate(&world, &features);
         let gain = gain_index(&instance);
         instance.set_control_input(gain, 3.0);
@@ -288,7 +294,9 @@ mod tests {
     #[test]
     fn state_from_string_with_invalid_state_fails() {
         let world = World::new();
-        let features = world.build_features(FeaturesBuilder::default());
+        let features = world
+            .try_build_features(FeaturesBuilder::default())
+            .expect("invalid feature block bounds");
         assert_eq!(
             world
                 .state_from_string(&features, "not turtle")
@@ -300,7 +308,9 @@ mod tests {
     #[test]
     fn restore_state_from_other_plugin_fails() {
         let world = World::new();
-        let features = world.build_features(FeaturesBuilder::default());
+        let features = world
+            .try_build_features(FeaturesBuilder::default())
+            .expect("invalid feature block bounds");
         let mut instance = instantiate(&world, &features);
         let fifths = unsafe {
             world

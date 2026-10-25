@@ -171,10 +171,12 @@ fn test_midimap() {
     let plugin = world
         .plugin_by_uri("http://gareus.org/oss/lv2/midimap")
         .expect("Plugin not found.");
-    let features = world.build_features(livi::FeaturesBuilder {
-        min_block_length: MIN_BLOCK_SIZE,
-        max_block_length: MAX_BLOCK_SIZE,
-    });
+    let features = world
+        .try_build_features(livi::FeaturesBuilder {
+            min_block_length: MIN_BLOCK_SIZE,
+            max_block_length: MAX_BLOCK_SIZE,
+        })
+        .expect("invalid feature block bounds");
     let mut instance = unsafe {
         plugin
             .instantiate(features.clone(), SAMPLE_RATE)

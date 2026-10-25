@@ -74,10 +74,12 @@ impl Processor {
         volume: f32,
     ) -> Processor {
         let buffer_size = client.buffer_size() as usize;
-        let features = world.build_features(livi::FeaturesBuilder {
-            min_block_length: 1,
-            max_block_length: buffer_size,
-        });
+        let features = world
+            .try_build_features(livi::FeaturesBuilder {
+                min_block_length: 1,
+                max_block_length: buffer_size,
+            })
+            .expect("invalid feature block bounds");
         #[allow(clippy::cast_precision_loss)]
         let plugin_instance = unsafe {
             plugin

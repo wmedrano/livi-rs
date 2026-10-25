@@ -34,6 +34,7 @@ impl FeaturesBuilder {
     /// Build features, panicking if block bounds are invalid.
     ///
     /// Use `try_build` to receive a configuration error instead.
+    #[deprecated(since = "0.9.0", note = "use try_build to handle invalid block bounds")]
     pub fn build(self, world: &crate::World) -> Arc<Features> {
         self.try_build(world).expect("invalid feature block bounds")
     }

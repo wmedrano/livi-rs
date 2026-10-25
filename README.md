@@ -29,10 +29,10 @@ This Rust code is for a plugin called mda EPiano. The code sets up the plugin an
 ```rust
 let world = livi::World::new();
 const SAMPLE_RATE: f64 = 44100.0;
-let features = world.build_features(livi::FeaturesBuilder {
+let features = world.try_build_features(livi::FeaturesBuilder {
     min_block_length: 1,
     max_block_length: 4096,
-});
+}).expect("invalid feature block bounds");
 let plugin = world
     // This is the URI for mda EPiano. You can use the `lv2ls` command line
     // utility to see all available LV2 plugins.

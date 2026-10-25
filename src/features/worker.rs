@@ -65,7 +65,17 @@ fn pop_message(receiver: &mut WorkerMessageReceiver) -> WorkerMessage {
     WorkerMessage { size, body }
 }
 
-pub extern "C" fn schedule_work(
+/// Queue a worker message from an LV2 audio-context callback.
+///
+/// # Safety
+/// `handle` must be the live schedule handle supplied by livi to this plugin
+/// instance. Calls using that handle must be serialized and confined to the
+/// calling contexts allowed by the LV2 Worker extension. For a nonzero `size`
+/// within the supported message limit, `body` must point to at least `size`
+/// initialized, readable bytes for the duration of this call. A zero-size
+/// message may use a null body pointer. Neither pointer is retained as message
+/// data: the payload is copied into the queue.
+pub unsafe extern "C" fn schedule_work(
     handle: lv2_sys::LV2_Worker_Schedule_Handle,
     size: u32,
     body: *const c_void,
@@ -233,10 +243,10 @@ pub(crate) fn end_run(
 /// # let plugin = world
 /// #     .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
 /// #     .expect("Plugin not found.");
-/// let features = world.build_features(livi::FeaturesBuilder{
+/// let features = world.try_build_features(livi::FeaturesBuilder{
 ///     min_block_length: MIN_BLOCK_SIZE,
 ///     max_block_length: MAX_BLOCK_SIZE,
-/// });
+/// }).expect("invalid feature block bounds");
 /// let mut instance = unsafe {
 ///     plugin
 ///         .instantiate(features.clone(), SAMPLE_RATE)
@@ -351,16 +361,21 @@ mod tests {
 
     #[test]
     fn worker_request_and_response_wraparound() {
-        for callback in [schedule_work as extern "C" fn(_, _, _) -> _, worker_respond] {
+        for callback in [
+            schedule_work as unsafe extern "C" fn(_, _, _) -> _,
+            worker_respond,
+        ] {
             let (mut sender, mut receiver) = instantiate_queue();
             for round in 0..12u8 {
                 let data = [round + 1; MAX_MESSAGE_SIZE];
                 assert_eq!(
-                    callback(
-                        (&mut sender as *mut WorkerMessageSender).cast(),
-                        data.len() as u32,
-                        data.as_ptr().cast(),
-                    ),
+                    unsafe {
+                        callback(
+                            (&mut sender as *mut WorkerMessageSender).cast(),
+                            data.len() as u32,
+                            data.as_ptr().cast(),
+                        )
+                    },
                     lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
                 );
                 let message = pop_message(&mut receiver);

@@ -96,6 +96,11 @@ impl<const MAX_SIZE: usize> Debug for LV2AtomEventBuilder<MAX_SIZE> {
 }
 
 /// An atom sequence.
+///
+/// When passing sequences to a plugin, use the same [`crate::Features`] as for
+/// plugin instantiation so atom types share a URID mapping. Native writers must
+/// honor the buffer capacity and leave valid sequence and event sizes; iteration
+/// trusts this structure and does not validate arbitrary native output.
 pub struct LV2AtomSequence {
     atom_sequence_urid: lv2_raw::LV2Urid,
     atom_chunk_urid: lv2_raw::LV2Urid,
@@ -195,6 +200,11 @@ impl LV2AtomSequence {
     }
 
     /// Return a mutable pointer to the underlying data.
+    ///
+    /// Writers must stay within the allocation, preserve valid atom headers and
+    /// padded event sizes, and respect Rust's borrowing rules. The pointer is
+    /// invalid after the sequence is dropped and must not be used while the
+    /// sequence is otherwise borrowed.
     #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut lv2_raw::LV2AtomSequence {
         self.buffer.as_mut_ptr().cast()
@@ -217,8 +227,9 @@ impl LV2AtomSequence {
 
     /// Iterate over all events (and event data) in the sequence.
     ///
-    /// # Panics
-    /// Panics if the underlying sequence is not well formed.
+    /// This method does not validate malformed native output. Code writing
+    /// through raw pointers must preserve the sequence's invariants; malformed
+    /// sizes can cause undefined behavior, rather than a panic.
     #[must_use]
     pub fn iter(&self) -> LV2AtomSequenceIter<'_> {
         unsafe {
@@ -327,10 +338,12 @@ mod tests {
     }
 
     fn test_features() -> Arc<crate::Features> {
-        TEST_WORLD.build_features(crate::features::FeaturesBuilder {
-            min_block_length: 1024,
-            max_block_length: 1024,
-        })
+        TEST_WORLD
+            .try_build_features(crate::features::FeaturesBuilder {
+                min_block_length: 1024,
+                max_block_length: 1024,
+            })
+            .expect("invalid feature block bounds")
     }
 
     #[test]

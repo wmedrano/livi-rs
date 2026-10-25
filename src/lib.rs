@@ -2,7 +2,7 @@
 //! ```
 //! let world = livi::World::new();
 //! const SAMPLE_RATE: f64 = 44100.0;
-//! let features = world.build_features(livi::FeaturesBuilder::default());
+//! let features = world.try_build_features(livi::FeaturesBuilder::default()).expect("invalid feature block bounds");
 //! let plugin = world
 //!     // This is the URI for mda EPiano. You can use the `lv2ls` command line
 //!     // utility to see all available LV2 plugins.
@@ -188,8 +188,13 @@ impl World {
     /// # Panics
     /// Panics if the block bounds are invalid. Use `try_build_features` to
     /// receive a configuration error instead.
+    #[deprecated(
+        since = "0.9.0",
+        note = "use try_build_features to handle invalid block bounds"
+    )]
     pub fn build_features(&self, builder: crate::features::FeaturesBuilder) -> Arc<Features> {
-        builder.build(self)
+        self.try_build_features(builder)
+            .expect("invalid feature block bounds")
     }
 
     /// Build plugin features, returning an error for invalid block bounds.
@@ -432,10 +437,12 @@ mod tests {
     #[test]
     fn test_midi_urid_ok() {
         let world = World::new();
-        let features = world.build_features(crate::features::FeaturesBuilder {
-            min_block_length: MIN_BLOCK_SIZE,
-            max_block_length: MAX_BLOCK_SIZE,
-        });
+        let features = world
+            .try_build_features(crate::features::FeaturesBuilder {
+                min_block_length: MIN_BLOCK_SIZE,
+                max_block_length: MAX_BLOCK_SIZE,
+            })
+            .expect("invalid feature block bounds");
         assert!(features.midi_urid() > 0, "midi urid is not valid");
     }
 
@@ -443,10 +450,12 @@ mod tests {
     fn test_all() {
         let world = World::new();
         let block_size = 64;
-        let features = world.build_features(crate::features::FeaturesBuilder {
-            min_block_length: block_size,
-            max_block_length: block_size,
-        });
+        let features = world
+            .try_build_features(crate::features::FeaturesBuilder {
+                min_block_length: block_size,
+                max_block_length: block_size,
+            })
+            .expect("invalid feature block bounds");
         for plugin in world.iter_plugins() {
             if plugin
                 .uri()
@@ -531,10 +540,12 @@ mod tests {
                 cv_outputs: 0,
             }
         );
-        let features = world.build_features(FeaturesBuilder {
-            min_block_length: MIN_BLOCK_SIZE,
-            max_block_length: MAX_BLOCK_SIZE,
-        });
+        let features = world
+            .try_build_features(FeaturesBuilder {
+                min_block_length: MIN_BLOCK_SIZE,
+                max_block_length: MAX_BLOCK_SIZE,
+            })
+            .expect("invalid feature block bounds");
         let mut instance = unsafe {
             plugin
                 .instantiate(features.clone(), SAMPLE_RATE)
@@ -596,10 +607,12 @@ mod tests {
                 cv_outputs: 0,
             }
         );
-        let features = world.build_features(FeaturesBuilder {
-            min_block_length: block_size,
-            max_block_length: block_size,
-        });
+        let features = world
+            .try_build_features(FeaturesBuilder {
+                min_block_length: block_size,
+                max_block_length: block_size,
+            })
+            .expect("invalid feature block bounds");
         let mut instance = unsafe {
             plugin
                 .instantiate(features.clone(), SAMPLE_RATE)

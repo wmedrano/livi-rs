@@ -92,7 +92,28 @@ impl Plugin {
     /// Returns an error if the plugin could not be instantiated.
     ///
     /// # Safety
-    /// Running plugin code is unsafe.
+    /// The caller must ensure that the plugin's native library and metadata
+    /// agree and that its code obeys the [LV2 contracts]. This includes valid
+    /// port indices and types, respecting buffer bounds and input immutability,
+    /// and using feature callbacks only with valid handles and payloads. Plugin
+    /// discovery filters unsupported features and ports; it does not establish
+    /// that native code is memory safe or isolate it from the host process.
+    ///
+    /// `sample_rate` must be finite, positive, and supported by the plugin.
+    /// Additional plugin-specific preconditions must also be satisfied.
+    ///
+    /// These guarantees must hold for the returned instance's entire lifetime,
+    /// including state operations, background worker callbacks, deactivation,
+    /// and cleanup. Workers may execute concurrently with audio processing;
+    /// the plugin must obey the [LV2 Worker threading rules]. Calls made outside
+    /// livi, including through raw handles, must obey LV2's threading rules and
+    /// must not invalidate the instance, its ports, or its feature data.
+    ///
+    /// The instance retains `features` and its plugin library. Callers do not
+    /// need to keep a separate `World`, `Plugin`, or `Arc<Features>` alive.
+    ///
+    /// [LV2 contracts]: https://lv2plug.in/ns/lv2core
+    /// [LV2 Worker threading rules]: https://lv2plug.in/ns/ext/worker
     pub unsafe fn instantiate(
         &self,
         features: Arc<Features>,
@@ -273,6 +294,12 @@ impl<'a> Debug for PortsDebug<'a> {
 }
 
 /// An instance of a plugin that can process inputs and outputs.
+///
+/// Created by [`Plugin::instantiate`], whose safety requirements also cover
+/// subsequent safe methods and destruction. Port buffers passed to [`Self::run`]
+/// are borrowed for that call; they need not remain alive between calls.
+/// Accessing the underlying instance through [`Self::raw`] or [`Self::raw_mut`]
+/// does not extend those buffer lifetimes.
 pub struct Instance {
     inner: lilv::instance::ActiveInstance,
     plugin: lilv::plugin::Plugin,
@@ -302,10 +329,38 @@ impl Instance {
     /// Run the plugin for a given number of samples.
     ///
     /// # Safety
-    /// Running plugin code is unsafe.
+    /// The lifetime-wide requirements of [`Plugin::instantiate`] must still
+    /// hold. In particular, the plugin must read only input buffers and write
+    /// only within output buffers, and must not access these buffers after this
+    /// call returns (including from background workers or during cleanup).
+    ///
+    /// Each iterator must report its exact remaining element count through
+    /// `ExactSizeIterator::len` and yield that many buffers. Buffers must be
+    /// supplied in ascending port-index order within each port type. Incorrect
+    /// iterator counts can leave stale pointers connected to the plugin.
+    ///
+    /// Atom buffers must use the same URID mapping as the `features` passed to
+    /// instantiation. Input sequences, event payloads, types, and timestamps must
+    /// satisfy the plugin's supported atom protocols. Any data modified through
+    /// raw pointers must remain well formed. The plugin must honor the capacity
+    /// advertised in output chunks and produce valid, bounded atom sequences
+    /// before those outputs are read or iterated. See the [LV2 Atom format].
+    ///
+    /// All buffers must remain valid for this entire call. Normal Rust borrows
+    /// provide validity and exclusive output access; any raw-pointer access must
+    /// preserve these guarantees too. No external code may run, reconnect,
+    /// deactivate, or destroy this instance concurrently. Background work
+    /// managed by livi is allowed under the LV2 Worker contract.
+    ///
+    /// [LV2 Atom format]: https://lv2plug.in/ns/ext/atom
     ///
     /// # Errors
-    /// Returns an error if the plugin could not be run.
+    /// Returns an error if `samples` is outside the configured block bounds,
+    /// a port iterator reports the wrong buffer count, or an audio/CV buffer has
+    /// fewer than `samples` elements. These checks do not validate atom payloads
+    /// or native plugin behavior. Validation may reconnect some ports and clear
+    /// atom outputs before returning an error, but does not call the plugin's
+    /// processing callback on that path.
     pub unsafe fn run<
         'a,
         AudioInputs,
@@ -492,11 +547,21 @@ impl Instance {
     }
 
     /// Get the underlying `lilv::instance::ActiveInstance`.
+    ///
+    /// Its port pointers may refer to buffers from an earlier [`Self::run`]
+    /// call whose borrows have ended. Before running through this interface,
+    /// reconnect every audio, CV, and atom port to valid buffers and uphold the
+    /// underlying unsafe API's requirements. Do not free the handle or invalidate
+    /// livi's control-port connections or feature data.
     pub fn raw(&self) -> &lilv::instance::ActiveInstance {
         &self.inner
     }
 
     /// Get the underlying `lilv::instance::ActiveInstance`.
+    ///
+    /// The same port-lifetime and ownership requirements as [`Self::raw`] apply.
+    /// Raw operations must preserve the active instance and livi's control-port
+    /// connections. A later [`Self::run`] reconnects audio, CV, and atom ports.
     pub fn raw_mut(&mut self) -> &mut lilv::instance::ActiveInstance {
         &mut self.inner
     }
@@ -743,7 +808,9 @@ mod tests {
         );
         let world = crate::World::with_load_bundle(&fixture.bundle_uri);
         let plugin = world.plugin_by_uri("urn:livi:test").unwrap();
-        let features = world.build_features(crate::FeaturesBuilder::default());
+        let features = world
+            .try_build_features(crate::FeaturesBuilder::default())
+            .expect("invalid feature block bounds");
         let mut instance = unsafe { plugin.instantiate(features, 44100.0).unwrap() };
         for (input_size, output_size) in [
             (0, 256),
@@ -949,10 +1016,12 @@ mod tests {
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
-        let features = world.build_features(crate::features::FeaturesBuilder {
-            min_block_length: block_size,
-            max_block_length: block_size,
-        });
+        let features = world
+            .try_build_features(crate::features::FeaturesBuilder {
+                min_block_length: block_size,
+                max_block_length: block_size,
+            })
+            .expect("invalid feature block bounds");
         let mut instance = unsafe {
             plugin
                 .instantiate(features.clone(), sample_rate)
@@ -984,10 +1053,12 @@ mod tests {
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
-        let features = world.build_features(crate::features::FeaturesBuilder {
-            min_block_length: supported_block_size.0,
-            max_block_length: supported_block_size.1,
-        });
+        let features = world
+            .try_build_features(crate::features::FeaturesBuilder {
+                min_block_length: supported_block_size.0,
+                max_block_length: supported_block_size.1,
+            })
+            .expect("invalid feature block bounds");
         let mut instance = unsafe {
             plugin
                 .instantiate(features, 44100.0)
@@ -1011,10 +1082,12 @@ mod tests {
         let plugin = world
             .plugin_by_uri("http://drobilla.net/plugins/mda/EPiano")
             .expect("Plugin not found.");
-        let features = world.build_features(crate::features::FeaturesBuilder {
-            min_block_length: supported_block_size.0,
-            max_block_length: supported_block_size.1,
-        });
+        let features = world
+            .try_build_features(crate::features::FeaturesBuilder {
+                min_block_length: supported_block_size.0,
+                max_block_length: supported_block_size.1,
+            })
+            .expect("invalid feature block bounds");
         let mut instance = unsafe {
             plugin
                 .instantiate(features, 44100.0)

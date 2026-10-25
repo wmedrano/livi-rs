@@ -2,7 +2,9 @@
 fn test_readme_example() {
     let world = livi::World::new();
     const SAMPLE_RATE: f64 = 44100.0;
-    let features = world.build_features(livi::FeaturesBuilder::default());
+    let features = world
+        .try_build_features(livi::FeaturesBuilder::default())
+        .expect("invalid feature block bounds");
     let plugin = world
         // This is the URI for mda EPiano. You can use the `lv2ls` command line
         // utility to see all available LV2 plugins.
