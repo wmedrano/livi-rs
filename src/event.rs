@@ -159,14 +159,15 @@ impl LV2AtomSequence {
     ) -> Result<(), EventError> {
         let event_size =
             std::mem::size_of::<lv2_raw::LV2AtomEvent>() as u32 + event.event.body.size;
+        let padded_event_size = lv2_raw::lv2_atom_pad_size(event_size);
         let sequence = unsafe { &mut *self.as_mut_ptr() };
         // This size includes the atom sequence header.
         let current_sequence_size =
             std::mem::size_of_val(&sequence.atom) as u32 + sequence.atom.size;
-        if (self.buffer.len() as u32) < current_sequence_size + event_size {
+        if (self.buffer.len() as u32) < current_sequence_size + padded_event_size {
             return Err(EventError::SequenceFull {
                 capacity: self.capacity(),
-                requested: (current_sequence_size + event_size) as usize,
+                requested: (current_sequence_size + padded_event_size) as usize,
             });
         }
         let end = unsafe { lv2_raw::lv2_atom_sequence_end(&sequence.body, sequence.atom.size) }
@@ -174,8 +175,7 @@ impl LV2AtomSequence {
         let src_ptr: *const u8 = event.as_ptr().cast();
         let dst_ptr: *mut u8 = end.cast();
         unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, event_size as usize) };
-        // This size only includes the sequencey body.
-        sequence.atom.size += lv2_raw::lv2_atom_pad_size(event_size);
+        sequence.atom.size += padded_event_size;
         Ok(())
     }
 
@@ -349,6 +349,24 @@ mod tests {
         assert_eq!(10, sequence.iter().count());
         for event in sequence.iter() {
             assert_eq!(event.data, &[0, 10, 20, 30, 40, 50, 60, 70]);
+        }
+    }
+
+    #[test]
+    fn test_padded_event_capacity_boundary() {
+        let features = test_features();
+        for capacity in 0..80 {
+            for size in 0..16 {
+                let event = LV2AtomEventBuilder::<16>::new(0, 0, &[1; 16][..size]).unwrap();
+                let mut sequence = LV2AtomSequence::new(&features, capacity);
+                while let Ok(_) = sequence.push_event(&event) {
+                    assert!(
+                        sequence.size() <= sequence.buffer.len(),
+                        "capacity {capacity}, data size {size}"
+                    );
+                }
+                assert!(sequence.size() <= sequence.buffer.len());
+            }
         }
     }
 
