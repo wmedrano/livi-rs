@@ -335,6 +335,48 @@ impl Instance {
         CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
         CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
     {
+        unsafe { self.connect(samples, ports) }?;
+        unsafe { self.inner.run(samples) };
+        if let Some(interface) = self.worker_interface.as_mut() {
+            worker::handle_work_responses(
+                interface,
+                &mut self.worker_to_instance_receiver,
+                self.inner.instance().handle(),
+            );
+            worker::end_run(interface, self.inner.instance().handle());
+        }
+        Ok(())
+    }
+
+    unsafe fn connect<
+        'a,
+        AudioInputs,
+        AudioOutputs,
+        AtomSequenceInputs,
+        AtomSequenceOutputs,
+        CVInputs,
+        CVOutputs,
+    >(
+        &mut self,
+        samples: usize,
+        ports: PortConnections<
+            'a,
+            AudioInputs,
+            AudioOutputs,
+            AtomSequenceInputs,
+            AtomSequenceOutputs,
+            CVInputs,
+            CVOutputs,
+        >,
+    ) -> Result<(), RunError>
+    where
+        AudioInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+        AudioOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+        AtomSequenceInputs: ExactSizeIterator + Iterator<Item = &'a LV2AtomSequence>,
+        AtomSequenceOutputs: ExactSizeIterator + Iterator<Item = &'a mut LV2AtomSequence>,
+        CVInputs: ExactSizeIterator + Iterator<Item = &'a [f32]>,
+        CVOutputs: ExactSizeIterator + Iterator<Item = &'a mut [f32]>,
+    {
         unsafe {
             if samples < self.min_block_size {
                 return Err(RunError::SampleCountTooSmall {
@@ -418,6 +460,12 @@ impl Instance {
                 });
             }
             for (data, index) in ports.cv_inputs.zip(self.cv_inputs.iter()) {
+                if data.len() < samples {
+                    return Err(RunError::CVInputSampleCountTooSmall {
+                        expected: samples,
+                        actual: data.len(),
+                    });
+                }
                 self.inner
                     .instance_mut()
                     .connect_port(index.0, data.as_ptr());
@@ -429,23 +477,18 @@ impl Instance {
                 });
             }
             for (data, index) in ports.cv_outputs.zip(self.cv_outputs.iter()) {
+                if data.len() < samples {
+                    return Err(RunError::CVOutputSampleCountTooSmall {
+                        expected: samples,
+                        actual: data.len(),
+                    });
+                }
                 self.inner
                     .instance_mut()
                     .connect_port_mut(index.0, data.as_mut_ptr());
             }
-            self.inner.run(samples);
-
-            if let Some(interface) = self.worker_interface.as_mut() {
-                worker::handle_work_responses(
-                    interface,
-                    &mut self.worker_to_instance_receiver,
-                    self.inner.instance().handle(),
-                );
-                worker::end_run(interface, self.inner.instance().handle());
-            }
-
-            Ok(())
         }
+        Ok(())
     }
 
     /// Get the underlying `lilv::instance::ActiveInstance`.
@@ -687,6 +730,44 @@ fn node_to_value(maybe_node: &Option<lilv::node::Node>) -> f32 {
 #[cfg(test)]
 mod tests {
     use crate::{Port, PortCounts, PortIndex, PortType};
+
+    #[test]
+    fn cv_buffer_lengths_are_validated_before_running() {
+        let fixture = crate::test_support::Fixture::new(
+            r#"
+            lv2:port
+                [ a lv2:InputPort, lv2:CVPort; lv2:index 0; lv2:symbol "in"; lv2:name "In" ],
+                [ a lv2:OutputPort, lv2:CVPort; lv2:index 1; lv2:symbol "out"; lv2:name "Out" ],
+                [ a lv2:OutputPort, lv2:ControlPort; lv2:index 2; lv2:symbol "runs"; lv2:name "Runs" ]
+        "#,
+        );
+        let world = crate::World::with_load_bundle(&fixture.bundle_uri);
+        let plugin = world.plugin_by_uri("urn:livi:test").unwrap();
+        let features = world.build_features(crate::FeaturesBuilder::default());
+        let mut instance = unsafe { plugin.instantiate(features, 44100.0).unwrap() };
+        for (input_size, output_size) in [
+            (0, 256),
+            (255, 256),
+            (256, 0),
+            (256, 255),
+            (256, 256),
+            (300, 300),
+        ] {
+            let input = vec![0.0; input_size];
+            let mut output = vec![0.0; output_size];
+            let ports = crate::EmptyPortConnections::new()
+                .with_cv_inputs(std::iter::once(input.as_slice()))
+                .with_cv_outputs(std::iter::once(output.as_mut_slice()));
+            let result = unsafe { instance.run(256, ports) };
+            assert_eq!(
+                result.is_err(),
+                input_size < 256 || output_size < 256,
+                "input {input_size}, output {output_size}: {result:?}"
+            );
+        }
+        // Only the two valid runs may invoke plugin code.
+        assert_eq!(instance.control_output(PortIndex(2)), Some(2.0));
+    }
 
     #[test]
     fn test_metadata() {
