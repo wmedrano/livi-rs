@@ -193,3 +193,30 @@ impl std::fmt::Display for StateError {
         }
     }
 }
+
+/// Invalid bounds for the LV2 block length options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureError {
+    /// Minimum block length exceeds maximum block length.
+    ReversedBounds { min: usize, max: usize },
+    /// A block length cannot be represented by the LV2 signed integer option.
+    BlockLengthOutOfRange { value: usize, min: i32, max: i32 },
+}
+
+impl std::error::Error for FeatureError {}
+
+impl std::fmt::Display for FeatureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReversedBounds { min, max } => {
+                write!(f, "minimum block length {min} exceeds maximum {max}")
+            }
+            Self::BlockLengthOutOfRange { value, min, max } => {
+                write!(
+                    f,
+                    "block length must be between {min} and {max} but was {value}"
+                )
+            }
+        }
+    }
+}

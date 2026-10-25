@@ -31,8 +31,40 @@ impl Default for FeaturesBuilder {
 }
 
 impl FeaturesBuilder {
-    /// Build a new `Features` object.
-    pub fn build(self, _world: &crate::World) -> Arc<Features> {
+    /// Build features, panicking if block bounds are invalid.
+    ///
+    /// Use `try_build` to receive a configuration error instead.
+    pub fn build(self, world: &crate::World) -> Arc<Features> {
+        self.try_build(world).expect("invalid feature block bounds")
+    }
+
+    /// Build features, returning an error before creating features or starting
+    /// a worker thread if either bound is unrepresentable or out of order.
+    pub fn try_build(
+        self,
+        _world: &crate::World,
+    ) -> Result<Arc<Features>, crate::error::FeatureError> {
+        use crate::error::FeatureError;
+        if self.min_block_length > self.max_block_length {
+            return Err(FeatureError::ReversedBounds {
+                min: self.min_block_length,
+                max: self.max_block_length,
+            });
+        }
+        let min = i32::try_from(self.min_block_length).map_err(|_| {
+            FeatureError::BlockLengthOutOfRange {
+                value: self.min_block_length,
+                min: 0,
+                max: i32::MAX,
+            }
+        })?;
+        let max = i32::try_from(self.max_block_length).map_err(|_| {
+            FeatureError::BlockLengthOutOfRange {
+                value: self.max_block_length,
+                min: 0,
+                max: i32::MAX,
+            }
+        })?;
         let worker_manager = Arc::new(WorkerManager::default());
         let keep_worker_thread_alive = Arc::new(AtomicBool::new(true));
 
@@ -67,7 +99,7 @@ impl FeaturesBuilder {
                 CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#minBlockLength\0")
                     .unwrap(),
             ),
-            self.min_block_length as i32,
+            min,
         );
         features.options.set_int_option(
             &features.urid_map,
@@ -75,9 +107,9 @@ impl FeaturesBuilder {
                 CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#maxBlockLength\0")
                     .unwrap(),
             ),
-            self.max_block_length as i32,
+            max,
         );
-        Arc::new(features)
+        Ok(Arc::new(features))
     }
 }
 
@@ -178,5 +210,59 @@ impl Drop for Features {
     fn drop(&mut self) {
         self.keep_worker_thread_alive
             .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_feature_bounds_return_errors() {
+        let world = crate::World::with_plugin_predicate(|_| false);
+        assert!(
+            FeaturesBuilder {
+                min_block_length: 256,
+                max_block_length: 1,
+            }
+            .try_build(&world)
+            .is_err(),
+            "accepted bounds 256..=1"
+        );
+        assert!(
+            FeaturesBuilder {
+                min_block_length: 1,
+                max_block_length: i32::MAX as usize + 1,
+            }
+            .try_build(&world)
+            .is_err(),
+            "accepted bounds 1..={}",
+            i32::MAX as usize + 1
+        );
+        assert!(
+            FeaturesBuilder {
+                min_block_length: i32::MAX as usize + 1,
+                max_block_length: i32::MAX as usize + 1,
+            }
+            .try_build(&world)
+            .is_err(),
+            "accepted bounds {0}..={0}",
+            i32::MAX as usize + 1
+        );
+    }
+
+    #[test]
+    fn representable_ordered_feature_bounds_are_accepted() {
+        let world = crate::World::with_plugin_predicate(|_| false);
+        for (min, max) in [(0, 0), (1, 1), (1, i32::MAX as usize)] {
+            let features = FeaturesBuilder {
+                min_block_length: min,
+                max_block_length: max,
+            }
+            .try_build(&world)
+            .unwrap();
+            assert_eq!(features.min_block_length(), min);
+            assert_eq!(features.max_block_length(), max);
+        }
     }
 }

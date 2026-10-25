@@ -215,14 +215,21 @@ impl World {
         self.iter_plugins().find(|p| p.uri() == uri)
     }
 
-    /// Initialize the block length. This is the minimum and maximum number of
-    /// samples that are processed per `run` method. This must be called before
-    /// any plugins are instantiated and may only be called once.
+    /// Build plugin features.
     ///
-    /// # Errors
-    /// Returns an error if the block lengths are invalid.
+    /// # Panics
+    /// Panics if the block bounds are invalid. Use `try_build_features` to
+    /// receive a configuration error instead.
     pub fn build_features(&self, builder: crate::features::FeaturesBuilder) -> Arc<Features> {
         builder.build(self)
+    }
+
+    /// Build plugin features, returning an error for invalid block bounds.
+    pub fn try_build_features(
+        &self,
+        builder: FeaturesBuilder,
+    ) -> Result<Arc<Features>, error::FeatureError> {
+        builder.try_build(self)
     }
 
     /// Load a state from a string, such as one produced by `State::to_string`.
