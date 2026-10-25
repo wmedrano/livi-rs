@@ -86,22 +86,10 @@ impl World {
         let world = Arc::new(lilv::World::new());
         let uri = world.new_uri(bundle_uri);
         world.load_bundle(&uri);
-        let common_uris = Arc::new(CommonUris::new(&world));
-        let class_to_parent = class_utils::make_class_to_parent_map(&world);
-        let plugins: Vec<Plugin> = world
-            .plugins()
-            .into_iter()
-            .filter(|p| atom_ports_supported(p, &common_uris))
-            .map(|p| {
-                let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
-                Plugin::from_raw(p, world.clone(), common_uris.clone(), classes)
-            })
-            .collect();
-
-        World {
-            world,
-            livi_plugins: plugins,
+        fn any_plugin_pred(_: &Plugin) -> bool {
+            true
         }
+        Self::from_loaded_world(world, any_plugin_pred)
     }
 
     /// Get the underlying lilv world.
@@ -117,6 +105,15 @@ impl World {
         P: Fn(&Plugin) -> bool,
     {
         let world = Arc::new(lilv::World::with_load_all());
+        Self::from_loaded_world(world, predicate)
+    }
+
+    // Apply the same validation before constructing a Plugin, regardless of
+    // how the underlying world was populated.
+    fn from_loaded_world<P>(world: Arc<lilv::World>, plugin_predicate: P) -> World
+    where
+        P: Fn(&Plugin) -> bool,
+    {
         let common_uris = Arc::new(CommonUris::new(&world));
         let supported_features = crate::Features::supported_features();
         info!(
@@ -124,12 +121,16 @@ impl World {
             supported_features
         );
         let class_to_parent = class_utils::make_class_to_parent_map(&world);
+        // TODO: Collect list of warnings per plugin instead of just displaying one.
         let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
-            .filter(|p| atom_ports_supported(p, &common_uris))
             .filter(|p| {
-                let unsupported_features: Vec<_> = p.required_features().into_iter().filter(|f| !supported_features.contains(f.as_uri().unwrap_or(""))).collect();
+                let unsupported_features: Vec<_> = p
+                    .required_features()
+                    .into_iter()
+                    .filter(|f| !supported_features.contains(f.as_uri().unwrap_or("")))
+                    .collect();
                 let is_supported = unsupported_features.is_empty();
                 if !is_supported {
                     warn!(
@@ -151,46 +152,13 @@ impl World {
                 }
                 true
             })
-            .filter(|p| {
-                for port in p.iter_ports() {
-                    for class in port.classes() {
-                        if class != common_uris.input_port_uri
-                            && class != common_uris.output_port_uri
-                            && class != common_uris.audio_port_uri
-                            && class != common_uris.control_port_uri
-                            && class != common_uris.atom_port_uri
-                            && class != common_uris.cv_port_uri
-                            && class != common_uris.mod_cv_port_uri
-                        {
-                            error!("Port class {:?} is not supported.", class);
-                            return false;
-                        }
-                    }
-                    if !port.is_a(&common_uris.input_port_uri)
-                        && !port.is_a(&common_uris.output_port_uri)
-                    {
-                        error!(
-                            "Port {:?} for plugin {} is neither an input or output.",
-                            port,
-                            p.uri().as_str().unwrap_or("BAD_URI")
-                        );
-                        return false;
-                    }
-                    if !port.is_a(&common_uris.audio_port_uri) && !port.is_a(&common_uris.control_port_uri) && !port.is_a(&common_uris.atom_port_uri) && !port.is_a(&common_uris.cv_port_uri) {
-                        error!(
-                            "Port {:?}for plugin {} not a recognized data type. Supported types are Audio and Control", port, p.uri().as_str().unwrap_or("BAD_URI")
-                        );
-                        return false;
-                    }
-                }
-                true
-            })
+            .filter(|p| ports_supported(p, &common_uris))
             .map(|p| {
                 let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
                 Plugin::from_raw(p, world.clone(), common_uris.clone(), classes)
-    })
+            })
             .filter(|p| {
-                let keep = predicate(p);
+                let keep = plugin_predicate(p);
                 if !keep {
                     debug!("Ignoring plugin {} due to predicate.", p.uri());
                 }
@@ -287,22 +255,55 @@ impl World {
     }
 }
 
-fn atom_ports_supported(plugin: &lilv::plugin::Plugin, uris: &CommonUris) -> bool {
+fn ports_supported(plugin: &lilv::plugin::Plugin, uris: &CommonUris) -> bool {
+    let direction_classes = [&uris.input_port_uri, &uris.output_port_uri];
+    let data_classes = [
+        &uris.audio_port_uri,
+        &uris.control_port_uri,
+        &uris.atom_port_uri,
+        &uris.cv_port_uri,
+    ];
+
     plugin.iter_ports().all(|port| {
-        if !port.is_a(&uris.atom_port_uri) {
-            return true;
+        for class in port.classes() {
+            if !direction_classes.contains(&&class)
+                && !data_classes.contains(&&class)
+                && class != uris.mod_cv_port_uri
+            {
+                error!("Port class {:?} is not supported.", class);
+                return false;
+            }
         }
-        let supported = port
-            .value(&uris.atom_buffer_type_uri)
-            .into_iter()
-            .any(|value| value == uris.atom_sequence_uri);
-        if !supported {
+        if !direction_classes.iter().any(|class| port.is_a(class)) {
+            error!(
+                "Port {:?} for plugin {} is neither an input nor output.",
+                port,
+                plugin.uri().as_str().unwrap_or("BAD_URI")
+            );
+            return false;
+        }
+        if !data_classes.iter().any(|class| port.is_a(class)) {
+            error!(
+                "Port {:?} for plugin {} is not a recognized data type. \
+                 Supported types are Audio, Control, Atom and CV",
+                port,
+                plugin.uri().as_str().unwrap_or("BAD_URI")
+            );
+            return false;
+        }
+        if port.is_a(&uris.atom_port_uri)
+            && !port
+                .value(&uris.atom_buffer_type_uri)
+                .into_iter()
+                .any(|value| value == uris.atom_sequence_uri)
+        {
             warn!(
                 "Plugin {:?} has an atom port without Sequence buffer support",
                 plugin.uri()
             );
+            return false;
         }
-        supported
+        true
     })
 }
 
@@ -387,6 +388,45 @@ mod tests {
                 "{declaration}"
             );
         }
+    }
+
+    #[test]
+    fn bundle_loading_rejects_unsupported_features() {
+        let fixture =
+            crate::test_support::Fixture::new("lv2:requiredFeature <urn:livi:unsupported>");
+        assert_eq!(
+            World::with_load_bundle(&fixture.bundle_uri)
+                .iter_plugins()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn bundle_loading_rejects_unsupported_ports() {
+        let fixture = crate::test_support::Fixture::new(
+            r#"
+            lv2:port [ a lv2:InputPort, <http://lv2plug.in/ns/ext/event#EventPort>;
+                lv2:index 0; lv2:symbol "event"; lv2:name "Event" ]
+        "#,
+        );
+        assert_eq!(
+            World::with_load_bundle(&fixture.bundle_uri)
+                .iter_plugins()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn bundle_loading_accepts_supported_plugins() {
+        let fixture =
+            crate::test_support::Fixture::new("lv2:optionalFeature <urn:livi:unsupported>");
+        assert!(
+            World::with_load_bundle(&fixture.bundle_uri)
+                .plugin_by_uri("urn:livi:test")
+                .is_some()
+        );
     }
 
     #[test]
