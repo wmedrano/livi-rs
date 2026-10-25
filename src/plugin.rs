@@ -116,7 +116,7 @@ impl Plugin {
 
             let worker_schedule_ptr: *mut LV2_Worker_Schedule = worker_schedule.as_mut();
             let worker_feature = LV2Feature {
-                uri: lv2_sys::LV2_WORKER__schedule.as_ptr() as *mut i8,
+                uri: lv2_sys::LV2_WORKER__schedule.as_ptr().cast(),
                 data: worker_schedule_ptr.cast(),
             };
 

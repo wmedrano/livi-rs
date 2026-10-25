@@ -2,7 +2,7 @@ use log::error;
 use lv2_raw::LV2Feature;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_char};
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::Mutex;
@@ -14,7 +14,10 @@ type MapImpl = Mutex<HashMap<CString, u32>>;
 
 /// # Safety
 /// Dereference to `uri_ptr` may be unsafe.
-extern "C" fn do_map(handle: lv2_raw::LV2UridMapHandle, uri_ptr: *const i8) -> lv2_raw::LV2Urid {
+extern "C" fn do_map(
+    handle: lv2_raw::LV2UridMapHandle,
+    uri_ptr: *const c_char,
+) -> lv2_raw::LV2Urid {
     let handle: *const MapImpl = handle as *const _;
     let map_mutex = unsafe { &*handle };
     let mut map = map_mutex.lock().unwrap();
@@ -28,7 +31,10 @@ extern "C" fn do_map(handle: lv2_raw::LV2UridMapHandle, uri_ptr: *const i8) -> l
     id
 }
 
-extern "C" fn do_unmap(handle: lv2_sys::LV2_URID_Map_Handle, urid: lv2_raw::LV2Urid) -> *const i8 {
+extern "C" fn do_unmap(
+    handle: lv2_sys::LV2_URID_Map_Handle,
+    urid: lv2_raw::LV2Urid,
+) -> *const c_char {
     let handle: *const MapImpl = handle as *const _;
     let map_mutex = unsafe { &*handle };
     let map = map_mutex.lock().unwrap();
