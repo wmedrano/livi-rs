@@ -1,4 +1,6 @@
 use std::boxed::Box;
+use std::collections::HashMap;
+use std::ffi::CStr;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -6,11 +8,13 @@ use crate::features::Features;
 use crate::port::{ControlPort, Controls};
 use crate::{
     CommonUris, Port, PortConnections, PortCounts, PortIndex, PortType,
-    error::{InstantiateError, RunError},
+    error::{InstantiateError, RunError, StateError},
     event::LV2AtomSequence,
     features::worker,
     port::{DataType, IOType},
+    state::{PortValueGetter, PortValueSetter, State, state_features, state_flags},
 };
+use log::warn;
 use lv2_raw::LV2Feature;
 use lv2_sys::LV2_Worker_Schedule;
 use ringbuf::HeapProd;
@@ -19,6 +23,7 @@ use ringbuf::HeapProd;
 #[derive(Clone)]
 pub struct Plugin {
     pub(crate) inner: lilv::plugin::Plugin,
+    pub(crate) world: Arc<lilv::World>,
     pub(crate) common_uris: Arc<CommonUris>,
     port_counts: PortCounts,
     classes: Vec<String>,
@@ -27,6 +32,7 @@ pub struct Plugin {
 impl Plugin {
     pub(crate) fn from_raw(
         plugin: lilv::plugin::Plugin,
+        world: Arc<lilv::World>,
         common_uris: Arc<CommonUris>,
         classes: Vec<String>,
     ) -> Plugin {
@@ -45,6 +51,7 @@ impl Plugin {
         }
         Plugin {
             inner: plugin,
+            world,
             common_uris,
             port_counts,
             classes,
@@ -120,7 +127,11 @@ impl Plugin {
                 .instantiate(sample_rate, iter_features)
                 .ok_or(InstantiateError::UnknownError)?;
 
-            let control_inputs = Controls::new(self.ports_with_type(PortType::ControlInput));
+            let mut control_inputs = Controls::new(self.ports_with_type(PortType::ControlInput));
+            let control_input_symbols: HashMap<String, PortIndex> = self
+                .ports_with_type(PortType::ControlInput)
+                .map(|p| (p.symbol, p.index))
+                .collect();
             let control_outputs = Controls::new(self.ports_with_type(PortType::ControlOutput));
             let mut audio_inputs = Vec::new();
             let mut audio_outputs = Vec::new();
@@ -143,6 +154,32 @@ impl Plugin {
                 }
             }
 
+            if self
+                .inner
+                .has_feature(&self.common_uris.load_default_state_feature_uri)
+            {
+                let mut map = features.urid_map.lv2_urid_map();
+                match self.world.new_state(&mut map, &self.inner.uri()) {
+                    None => warn!(
+                        "Plugin {} requires loadDefaultState but its default state could not be loaded.",
+                        self.uri()
+                    ),
+                    Some(default_state) => {
+                        let mut setter = PortValueSetter {
+                            controls: &mut control_inputs,
+                            symbols: &control_input_symbols,
+                            features: &features,
+                        };
+                        default_state.restore(
+                            &instance,
+                            Some(&mut setter),
+                            state_flags(),
+                            state_features(&features),
+                        );
+                    }
+                }
+            }
+
             let mut inner = instance.activate();
             #[allow(clippy::mutex_atomic)]
             let is_alive = Arc::new(Mutex::new(true));
@@ -162,6 +199,8 @@ impl Plugin {
 
             Ok(Instance {
                 inner,
+                plugin: self.inner.clone(),
+                control_input_symbols,
                 min_block_size,
                 max_block_size,
                 control_inputs,
@@ -177,7 +216,7 @@ impl Plugin {
                 _worker_schedule: worker_schedule,
                 _instance_to_worker_sender: instance_to_worker_sender,
                 is_alive,
-                _features: features,
+                features,
             })
         }
     }
@@ -236,6 +275,8 @@ impl<'a> Debug for PortsDebug<'a> {
 /// An instance of a plugin that can process inputs and outputs.
 pub struct Instance {
     inner: lilv::instance::ActiveInstance,
+    plugin: lilv::plugin::Plugin,
+    control_input_symbols: HashMap<String, PortIndex>,
     min_block_size: usize,
     max_block_size: usize,
     control_inputs: Controls,
@@ -251,7 +292,7 @@ pub struct Instance {
     _worker_schedule: Box<lv2_sys::LV2_Worker_Schedule>,
     _instance_to_worker_sender: Box<worker::WorkerMessageSender>,
     is_alive: Arc<Mutex<bool>>,
-    _features: Arc<Features>,
+    features: Arc<Features>,
 }
 
 unsafe impl Sync for Instance {}
@@ -452,6 +493,64 @@ impl Instance {
         Some(unsafe { *ptr })
     }
 
+    /// Take a snapshot of the instance's state. This includes the values of all
+    /// control input ports and any properties the plugin saves through the LV2
+    /// State extension.
+    ///
+    /// # Errors
+    /// Returns an error if the state could not be created.
+    pub fn state(&self) -> Result<State, StateError> {
+        let mut map = self.features.urid_map.lv2_urid_map();
+        let mut getter = PortValueGetter {
+            controls: &self.control_inputs,
+            symbols: &self.control_input_symbols,
+            float_urid: self
+                .features
+                .urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__Float).unwrap()),
+        };
+        let inner = self
+            .plugin
+            .new_state_from_instance(
+                self.inner.instance(),
+                &mut map,
+                None,
+                None,
+                None,
+                None,
+                Some(&mut getter),
+                state_flags(),
+                state_features(&self.features),
+            )
+            .ok_or(StateError::CreateFailed)?;
+        Ok(State::new(inner, self.features.clone()))
+    }
+
+    /// Restore the instance to `state`. This sets the values of the control
+    /// input ports and restores any properties the plugin saves through the LV2
+    /// State extension.
+    ///
+    /// # Errors
+    /// Returns an error if `state` is for a different plugin.
+    pub fn restore_state(&mut self, state: &State) -> Result<(), StateError> {
+        let expected = self.plugin.uri().as_uri().unwrap_or_default().to_string();
+        let actual = state.plugin_uri();
+        if expected != actual {
+            return Err(StateError::PluginMismatch { expected, actual });
+        }
+        let mut setter = PortValueSetter {
+            controls: &mut self.control_inputs,
+            symbols: &self.control_input_symbols,
+            features: &self.features,
+        };
+        state.raw().restore(
+            self.inner.instance(),
+            Some(&mut setter),
+            state_flags(),
+            state_features(&self.features),
+        );
+        Ok(())
+    }
+
     /// Get the number of ports for a specific type of port.
     pub fn port_counts_for_type(&self, t: PortType) -> usize {
         match t {
@@ -487,6 +586,7 @@ impl Debug for Instance {
             .field("plugin", &self.inner.instance().uri())
             .field("min_block_size", &self.min_block_size)
             .field("max_block_size", &self.max_block_size)
+            .field("control_input_symbols", &self.control_input_symbols)
             .field("control_inputs", &self.control_inputs)
             .field("control_outputs", &self.control_outputs)
             .field("audio_inputs", &self.audio_inputs)
@@ -500,7 +600,7 @@ impl Debug for Instance {
             .field("_worker_schedule", &self._worker_schedule)
             .field("_instance_to_worker_sender", &"__ringbuf_sender__")
             .field("is_alive", &self.is_alive)
-            .field("_features", &self._features)
+            .field("features", &self.features)
             .finish()
     }
 }

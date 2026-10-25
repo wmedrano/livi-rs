@@ -36,13 +36,16 @@
 //!     .with_audio_outputs(outputs.iter_mut().map(|output| output.as_mut_slice()));
 //! unsafe { instance.run(features.max_block_length(), ports).unwrap() };
 //! ```
+use error::StateError;
 use log::{debug, error, info, warn};
+use std::path::Path;
 use std::sync::Arc;
 
 pub use features::worker::{Worker, WorkerManager};
 pub use features::{Features, FeaturesBuilder};
 pub use plugin::{Instance, Plugin};
 pub use port::{EmptyPortConnections, Port, PortConnections, PortCounts, PortIndex, PortType};
+pub use state::State;
 
 /// The underlying `lilv` library.
 pub use lilv;
@@ -55,10 +58,14 @@ pub mod event;
 mod features;
 mod plugin;
 mod port;
+/// Contains support for saving and restoring plugin state.
+pub mod state;
 
 /// Contains all plugins.
 pub struct World {
-    world: lilv::World,
+    // TODO: Remove the Arc once lilv::World implements Clone. lilv::World is
+    // already reference counted internally.
+    world: Arc<lilv::World>,
     livi_plugins: Vec<Plugin>,
 }
 
@@ -76,7 +83,7 @@ impl World {
     /// bundle_uri must be a fully qualified URI to the bundle directory,
     /// with the trailing slash, eg file:///usr/lib/lv2/foo.lv2/.
     pub fn with_load_bundle(bundle_uri: &str) -> World {
-        let world = lilv::World::new();
+        let world = Arc::new(lilv::World::new());
         let uri = world.new_uri(bundle_uri);
         world.load_bundle(&uri);
         let common_uris = Arc::new(CommonUris::new(&world));
@@ -86,7 +93,7 @@ impl World {
             .into_iter()
             .map(|p| {
                 let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
-                Plugin::from_raw(p, common_uris.clone(), classes)
+                Plugin::from_raw(p, world.clone(), common_uris.clone(), classes)
             })
             .collect();
 
@@ -108,7 +115,7 @@ impl World {
     where
         P: Fn(&Plugin) -> bool,
     {
-        let world = lilv::World::with_load_all();
+        let world = Arc::new(lilv::World::with_load_all());
         let common_uris = Arc::new(CommonUris::new(&world));
         let supported_features = crate::Features::supported_features();
         info!(
@@ -178,7 +185,7 @@ impl World {
             })
             .map(|p| {
                 let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
-                Plugin::from_raw(p, common_uris.clone(), classes)
+                Plugin::from_raw(p, world.clone(), common_uris.clone(), classes)
     })
             .filter(|p| {
                 let keep = predicate(p);
@@ -215,6 +222,60 @@ impl World {
     pub fn build_features(&self, builder: crate::features::FeaturesBuilder) -> Arc<Features> {
         builder.build(self)
     }
+
+    /// Load a state from a string, such as one produced by `State::to_string`.
+    ///
+    /// # Errors
+    /// Returns an error if the state could not be loaded.
+    pub fn state_from_string(
+        &self,
+        features: &Arc<Features>,
+        state: &str,
+    ) -> Result<State, StateError> {
+        let mut map = features.urid_map.lv2_urid_map();
+        let inner = self
+            .world
+            .new_state_from_string(&mut map, state)
+            .ok_or(StateError::LoadFailed)?;
+        Ok(State::new(inner, features.clone()))
+    }
+
+    /// Load a state from a Turtle file, such as one produced by `State::save`.
+    /// If `uri` is `None`, then the subject of the state is taken to be the
+    /// file itself.
+    ///
+    /// # Errors
+    /// Returns an error if `path` is not valid UTF-8 or the state could not be
+    /// loaded.
+    pub fn state_from_file(
+        &self,
+        features: &Arc<Features>,
+        uri: Option<&str>,
+        path: &Path,
+    ) -> Result<State, StateError> {
+        let path = path.to_str().ok_or(StateError::InvalidPath)?;
+        let mut map = features.urid_map.lv2_urid_map();
+        let subject = uri.map(|uri| self.world.new_uri(uri));
+        let inner = self
+            .world
+            .new_state_from_file(&mut map, subject.as_ref(), path)
+            .ok_or(StateError::LoadFailed)?;
+        Ok(State::new(inner, features.clone()))
+    }
+
+    /// Load a state, such as a preset, that has been loaded into the world. If
+    /// `uri` is a plugin URI, then the default state of the plugin is loaded.
+    ///
+    /// # Errors
+    /// Returns an error if the state could not be loaded.
+    pub fn state_from_uri(&self, features: &Arc<Features>, uri: &str) -> Result<State, StateError> {
+        let mut map = features.urid_map.lv2_urid_map();
+        let inner = self
+            .world
+            .new_state(&mut map, &self.world.new_uri(uri))
+            .ok_or(StateError::LoadFailed)?;
+        Ok(State::new(inner, features.clone()))
+    }
 }
 
 impl Default for World {
@@ -241,6 +302,7 @@ struct CommonUris {
     cv_port_uri: lilv::node::Node,
     mod_cv_port_uri: lilv::node::Node,
     worker_schedule_feature_uri: lilv::node::Node,
+    load_default_state_feature_uri: lilv::node::Node,
 }
 
 impl CommonUris {
@@ -254,6 +316,8 @@ impl CommonUris {
             cv_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#CVPort"),
             mod_cv_port_uri: world.new_uri("http://moddevices.com/ns/mod#CVPort"),
             worker_schedule_feature_uri: world.new_uri("http://lv2plug.in/ns/ext/worker#schedule"),
+            load_default_state_feature_uri: world
+                .new_uri("http://lv2plug.in/ns/ext/state#loadDefaultState"),
         }
     }
 }
@@ -524,6 +588,7 @@ mod tests {
             "http://lv2plug.in/ns/ext/options#options",
             "http://lv2plug.in/ns/ext/buf-size#boundedBlockLength",
             "http://lv2plug.in/ns/ext/worker#schedule",
+            "http://lv2plug.in/ns/ext/state#loadDefaultState",
         ]);
         assert_eq!(want, supported_features);
     }
