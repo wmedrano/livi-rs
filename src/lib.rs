@@ -91,6 +91,7 @@ impl World {
         let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
+            .filter(|p| atom_ports_supported(p, &common_uris))
             .map(|p| {
                 let classes = class_utils::class_with_parents(&p.class(), &class_to_parent);
                 Plugin::from_raw(p, world.clone(), common_uris.clone(), classes)
@@ -126,6 +127,7 @@ impl World {
         let plugins: Vec<Plugin> = world
             .plugins()
             .into_iter()
+            .filter(|p| atom_ports_supported(p, &common_uris))
             .filter(|p| {
                 let unsupported_features: Vec<_> = p.required_features().into_iter().filter(|f| !supported_features.contains(f.as_uri().unwrap_or(""))).collect();
                 let is_supported = unsupported_features.is_empty();
@@ -278,6 +280,25 @@ impl World {
     }
 }
 
+fn atom_ports_supported(plugin: &lilv::plugin::Plugin, uris: &CommonUris) -> bool {
+    plugin.iter_ports().all(|port| {
+        if !port.is_a(&uris.atom_port_uri) {
+            return true;
+        }
+        let supported = port
+            .value(&uris.atom_buffer_type_uri)
+            .into_iter()
+            .any(|value| value == uris.atom_sequence_uri);
+        if !supported {
+            warn!(
+                "Plugin {:?} has an atom port without Sequence buffer support",
+                plugin.uri()
+            );
+        }
+        supported
+    })
+}
+
 impl Default for World {
     fn default() -> Self {
         Self::new()
@@ -299,6 +320,8 @@ struct CommonUris {
     control_port_uri: lilv::node::Node,
     audio_port_uri: lilv::node::Node,
     atom_port_uri: lilv::node::Node,
+    atom_buffer_type_uri: lilv::node::Node,
+    atom_sequence_uri: lilv::node::Node,
     cv_port_uri: lilv::node::Node,
     mod_cv_port_uri: lilv::node::Node,
     worker_schedule_feature_uri: lilv::node::Node,
@@ -313,6 +336,8 @@ impl CommonUris {
             control_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#ControlPort"),
             audio_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#AudioPort"),
             atom_port_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#AtomPort"),
+            atom_buffer_type_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#bufferType"),
+            atom_sequence_uri: world.new_uri("http://lv2plug.in/ns/ext/atom#Sequence"),
             cv_port_uri: world.new_uri("http://lv2plug.in/ns/lv2core#CVPort"),
             mod_cv_port_uri: world.new_uri("http://moddevices.com/ns/mod#CVPort"),
             worker_schedule_feature_uri: world.new_uri("http://lv2plug.in/ns/ext/worker#schedule"),
@@ -333,6 +358,29 @@ mod tests {
     const MIN_BLOCK_SIZE: usize = 1;
     const MAX_BLOCK_SIZE: usize = 256;
     const SAMPLE_RATE: f64 = 44100.0;
+
+    #[test]
+    fn atom_ports_require_sequence_buffer_type() {
+        for (declaration, supported) in [
+            ("atom:bufferType atom:Float;", false),
+            ("", false),
+            ("atom:bufferType atom:Sequence;", true),
+            ("atom:bufferType atom:Float, atom:Sequence;", true),
+        ] {
+            let fixture = crate::test_support::Fixture::new(&format!(
+                r#"
+                lv2:port [ a lv2:InputPort, atom:AtomPort; lv2:index 0;
+                    lv2:symbol "atom"; lv2:name "Atom"; {declaration} ]
+            "#
+            ));
+            let world = World::with_load_bundle(&fixture.bundle_uri);
+            assert_eq!(
+                world.plugin_by_uri("urn:livi:test").is_some(),
+                supported,
+                "{declaration}"
+            );
+        }
+    }
 
     #[test]
     fn test_midi_urid_ok() {

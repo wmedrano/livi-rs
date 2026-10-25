@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Filter plugins with unsupported atom ports. Only sequence ports are supported.
 - Allows plugins to safetly handle worker payloads with empty body.
 - Fix worker race condition by committing header and body bytes in single
   transaction.
