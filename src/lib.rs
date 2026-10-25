@@ -593,3 +593,6 @@ mod tests {
         assert_eq!(want, supported_features);
     }
 }
+
+#[cfg(test)]
+mod test_support;

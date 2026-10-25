@@ -51,6 +51,12 @@ pub enum RunError {
     /// required.
     AtomSequenceOutputsSizeMismatch { expected: usize, actual: usize },
 
+    /// A CV input buffer contains fewer samples than requested.
+    CVInputSampleCountTooSmall { expected: usize, actual: usize },
+
+    /// A CV output buffer contains fewer samples than requested.
+    CVOutputSampleCountTooSmall { expected: usize, actual: usize },
+
     /// The number of cv inputs was different than what the plugin required.
     CVInputsSizeMismatch { expected: usize, actual: usize },
 
@@ -152,6 +158,14 @@ impl std::fmt::Display for RunError {
             RunError::AtomSequenceOutputsSizeMismatch { expected, actual } => write!(
                 f,
                 "expected {expected} atom sequence outputs but found {actual}",
+            ),
+            RunError::CVInputSampleCountTooSmall { expected, actual } => write!(
+                f,
+                "cv input required at least {expected} samples but has {actual}",
+            ),
+            RunError::CVOutputSampleCountTooSmall { expected, actual } => write!(
+                f,
+                "cv output required at least {expected} samples but has {actual}",
             ),
             RunError::CVInputsSizeMismatch { expected, actual } => {
                 write!(f, "expected {expected} cv inputs but found {actual}")
