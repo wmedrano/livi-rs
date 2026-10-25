@@ -1,7 +1,7 @@
 use lv2_raw::{LV2Feature, LV2Urid};
 use lv2_sys::LV2_Options_Option;
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::{collections::HashMap, ffi::CStr};
 
 static OPTIONS_FEATURE_URI: &[u8] = b"http://lv2plug.in/ns/ext/options#options\0";
 
@@ -59,8 +59,7 @@ impl Options {
             key,
             size: u32::try_from(std::mem::size_of::<i32>())
                 .expect("Size exceeded capacity of u32."),
-            type_: urid_map
-                .map(CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Int\0").unwrap()),
+            type_: urid_map.map(c"http://lv2plug.in/ns/ext/atom#Int"),
             value: value_ptr.cast(),
         });
     }

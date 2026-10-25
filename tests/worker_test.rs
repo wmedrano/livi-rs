@@ -118,8 +118,7 @@ fn run_instance_with_single_midi_note_input(
 }
 
 fn build_set_config_message(features: &Features, config_filepath: &str) -> SetConfigMessage {
-    let cfgfile_urid = features
-        .urid(CStr::from_bytes_with_nul(b"http://gareus.org/oss/lv2/midimap#cfgfile\0").unwrap());
+    let cfgfile_urid = features.urid(c"http://gareus.org/oss/lv2/midimap#cfgfile");
     let urid_urid = features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_ATOM__URID).unwrap());
     let patch_property_urid =
         features.urid(CStr::from_bytes_with_nul(lv2_sys::LV2_PATCH__property).unwrap());

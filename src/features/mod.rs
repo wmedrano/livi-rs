@@ -95,18 +95,16 @@ impl FeaturesBuilder {
         };
         features.options.set_int_option(
             &features.urid_map,
-            features.urid_map.map(
-                CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#minBlockLength\0")
-                    .unwrap(),
-            ),
+            features
+                .urid_map
+                .map(c"http://lv2plug.in/ns/ext/buf-size#minBlockLength"),
             min,
         );
         features.options.set_int_option(
             &features.urid_map,
-            features.urid_map.map(
-                CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/buf-size#maxBlockLength\0")
-                    .unwrap(),
-            ),
+            features
+                .urid_map
+                .map(c"http://lv2plug.in/ns/ext/buf-size#maxBlockLength"),
             max,
         );
         Ok(Arc::new(features))
@@ -172,10 +170,7 @@ impl Features {
 
     /// The urid for midi.
     pub fn midi_urid(&self) -> lv2_raw::LV2Urid {
-        self.urid(
-            std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/midi#MidiEvent\0")
-                .unwrap(),
-        )
+        self.urid(c"http://lv2plug.in/ns/ext/midi#MidiEvent")
     }
 
     /// The uri for the given urid.

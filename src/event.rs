@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 /// A builder for a single atom event. The max size of the data contained in the
 /// event is `MAX_SIZE`.
-#[repr(packed)]
+#[repr(C, packed)]
 pub struct LV2AtomEventBuilder<const MAX_SIZE: usize> {
     /// The atom event.
     event: lv2_raw::LV2AtomEvent,
@@ -115,14 +115,8 @@ impl LV2AtomSequence {
     #[must_use]
     pub fn new(features: &crate::Features, capacity: usize) -> LV2AtomSequence {
         let mut seq = LV2AtomSequence {
-            atom_sequence_urid: features.urid(
-                std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Sequence\0")
-                    .unwrap(),
-            ),
-            atom_chunk_urid: features.urid(
-                std::ffi::CStr::from_bytes_with_nul(b"http://lv2plug.in/ns/ext/atom#Chunk\0")
-                    .unwrap(),
-            ),
+            atom_sequence_urid: features.urid(c"http://lv2plug.in/ns/ext/atom#Sequence"),
+            atom_chunk_urid: features.urid(c"http://lv2plug.in/ns/ext/atom#Chunk"),
             buffer: vec![0; capacity + std::mem::size_of::<lv2_raw::LV2AtomSequence>()],
         };
         seq.clear();
@@ -359,7 +353,7 @@ mod tests {
             for size in 0..16 {
                 let event = LV2AtomEventBuilder::<16>::new(0, 0, &[1; 16][..size]).unwrap();
                 let mut sequence = LV2AtomSequence::new(&features, capacity);
-                while let Ok(_) = sequence.push_event(&event) {
+                while sequence.push_event(&event).is_ok() {
                     assert!(
                         sequence.size() <= sequence.buffer.len(),
                         "capacity {capacity}, data size {size}"

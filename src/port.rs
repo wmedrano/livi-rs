@@ -370,7 +370,7 @@ impl Controls {
                 maximum: p.max_value.unwrap_or(f32::INFINITY),
             })
             .collect();
-        controls.sort_by(|a, b| a.port_index.cmp(&b.port_index));
+        controls.sort_by_key(|a| a.port_index);
         controls.dedup_by_key(|p| p.port_index);
         Controls { controls }
     }
