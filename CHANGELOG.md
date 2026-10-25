@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Allows plugins to safetly handle worker payloads with empty body.
 - Fix worker race condition by committing header and body bytes in single
   transaction.
 - Use padded size to check `LV2AtomSequence::push`. Previously, we may have

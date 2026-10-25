@@ -38,7 +38,11 @@ fn publish_message(
     if size > MAX_MESSAGE_SIZE {
         return lv2_sys::LV2_Worker_Status_LV2_WORKER_ERR_NO_SPACE;
     }
-    let body = unsafe { slice::from_raw_parts(body, size) };
+    let body = if size == 0 {
+        &[][..]
+    } else {
+        unsafe { slice::from_raw_parts(body, size) }
+    };
     let total_size = size_of::<usize>() + size;
     let size_as_bytes = size.to_be_bytes();
     let send_result = if sender.vacant_len() < total_size {
@@ -122,7 +126,7 @@ impl Worker {
     /// the results back to the realtime thread.
     pub fn do_work(&mut self) {
         let plugin_is_alive = self.plugin_is_alive.lock().unwrap();
-        while *plugin_is_alive && self.receiver.occupied_len() > size_of::<usize>() {
+        while *plugin_is_alive && self.receiver.occupied_len() >= size_of::<usize>() {
             let mut message = pop_message(&mut self.receiver);
             if let Some(work_function) = self.interface.work {
                 let sender = &mut self.sender as *mut WorkerMessageSender as *mut c_void;
@@ -194,7 +198,7 @@ pub(crate) fn handle_work_responses(
     receiver: &mut WorkerMessageReceiver,
     handle: lv2_sys::LV2_Handle,
 ) {
-    while receiver.occupied_len() > size_of::<usize>() {
+    while receiver.occupied_len() >= size_of::<usize>() {
         let mut message = pop_message(receiver);
         if let Some(work_response_function) = worker_interface.work_response {
             unsafe { work_response_function(handle, message.size as u32, message.data()) };
@@ -273,6 +277,77 @@ impl WorkerManager {
 mod tests {
     use super::*;
     use std::str;
+
+    #[test]
+    fn empty_worker_messages() {
+        unsafe extern "C" fn count_work(
+            handle: lv2_sys::LV2_Handle,
+            _respond: lv2_sys::LV2_Worker_Respond_Function,
+            _respond_handle: lv2_sys::LV2_Worker_Respond_Handle,
+            size: u32,
+            _data: *const c_void,
+        ) -> lv2_sys::LV2_Worker_Status {
+            assert_eq!(size, 0);
+            unsafe {
+                *(handle as *mut usize) += 1;
+            }
+            lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
+        }
+
+        unsafe extern "C" fn count_response(
+            handle: lv2_sys::LV2_Handle,
+            size: u32,
+            _data: *const c_void,
+        ) -> lv2_sys::LV2_Worker_Status {
+            assert_eq!(size, 0);
+            unsafe {
+                *(handle as *mut usize) += 1;
+            }
+            lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
+        }
+
+        let (mut sender, receiver) = instantiate_queue();
+        let (response_sender, mut response_receiver) = instantiate_queue();
+        let mut count = 0usize;
+        let handle = (&mut count as *mut usize).cast();
+        let mut interface = lv2_sys::LV2_Worker_Interface {
+            work: Some(count_work),
+            work_response: Some(count_response),
+            end_run: None,
+        };
+        let mut worker = Worker::new(
+            Arc::new(Mutex::new(true)),
+            interface,
+            handle,
+            receiver,
+            response_sender,
+        );
+        for data in [
+            std::ptr::NonNull::<u8>::dangling().as_ptr(),
+            std::ptr::null_mut(),
+        ] {
+            assert_eq!(
+                publish_message(&mut sender, 0, data),
+                lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
+            );
+            worker.do_work();
+            assert_eq!(worker.receiver.occupied_len(), 0);
+            assert_eq!(
+                publish_message(&mut worker.sender, 0, data),
+                lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
+            );
+            handle_work_responses(&mut interface, &mut response_receiver, handle);
+            assert_eq!(response_receiver.occupied_len(), 0);
+        }
+        assert_eq!(count, 4);
+        let mut byte = 42;
+        assert_eq!(
+            publish_message(&mut sender, 1, &mut byte),
+            lv2_sys::LV2_Worker_Status_LV2_WORKER_SUCCESS
+        );
+        let message = pop_message(&mut worker.receiver);
+        assert_eq!(&message.body[..message.size], &[42]);
+    }
 
     #[test]
     fn worker_request_and_response_wraparound() {
